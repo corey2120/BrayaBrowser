@@ -144,6 +144,45 @@ void BrayaWindow::setupUI() {
     gtk_box_append(GTK_BOX(contentBox), tabStack);
     gtk_widget_set_vexpand(tabStack, TRUE);
     
+    // Find bar (hidden by default)
+    findBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_add_css_class(findBar, "find-bar");
+    gtk_widget_set_visible(findBar, FALSE);
+    gtk_widget_set_margin_start(findBar, 10);
+    gtk_widget_set_margin_end(findBar, 10);
+    gtk_widget_set_margin_top(findBar, 5);
+    gtk_widget_set_margin_bottom(findBar, 5);
+    
+    GtkWidget* findLabel = gtk_label_new("Find:");
+    gtk_box_append(GTK_BOX(findBar), findLabel);
+    
+    findEntry = gtk_entry_new();
+    gtk_widget_set_size_request(findEntry, 250, -1);
+    g_signal_connect(findEntry, "changed", G_CALLBACK(onFindEntryChanged), this);
+    g_signal_connect(findEntry, "activate", G_CALLBACK(onFindNextClicked), this);
+    gtk_box_append(GTK_BOX(findBar), findEntry);
+    
+    findMatchLabel = gtk_label_new("");
+    gtk_widget_add_css_class(findMatchLabel, "find-match-label");
+    gtk_box_append(GTK_BOX(findBar), findMatchLabel);
+    
+    GtkWidget* findPrevBtn = gtk_button_new_with_label("◀");
+    gtk_widget_set_tooltip_text(findPrevBtn, "Previous (Shift+Enter)");
+    g_signal_connect(findPrevBtn, "clicked", G_CALLBACK(onFindPrevClicked), this);
+    gtk_box_append(GTK_BOX(findBar), findPrevBtn);
+    
+    GtkWidget* findNextBtn = gtk_button_new_with_label("▶");
+    gtk_widget_set_tooltip_text(findNextBtn, "Next (Enter)");
+    g_signal_connect(findNextBtn, "clicked", G_CALLBACK(onFindNextClicked), this);
+    gtk_box_append(GTK_BOX(findBar), findNextBtn);
+    
+    GtkWidget* findCloseBtn = gtk_button_new_with_label("✕");
+    gtk_widget_set_tooltip_text(findCloseBtn, "Close (Esc)");
+    g_signal_connect(findCloseBtn, "clicked", G_CALLBACK(onFindCloseClicked), this);
+    gtk_box_append(GTK_BOX(findBar), findCloseBtn);
+    
+    gtk_box_append(GTK_BOX(contentBox), findBar);
+    
     // No status bar - maximize space!
 }
 
@@ -627,6 +666,40 @@ void BrayaWindow::showDownloads() {
     }
 }
 
+void BrayaWindow::showFindBar() {
+    gtk_widget_set_visible(findBar, TRUE);
+    gtk_widget_grab_focus(findEntry);
+}
+
+void BrayaWindow::hideFindBar() {
+    gtk_widget_set_visible(findBar, FALSE);
+    gtk_editable_set_text(GTK_EDITABLE(findEntry), "");
+    gtk_label_set_text(GTK_LABEL(findMatchLabel), "");
+    
+    // Clear find in current tab
+    if (activeTabIndex >= 0) {
+        BrayaTab* tab = tabs[activeTabIndex].get();
+        WebKitFindController* findController = webkit_web_view_get_find_controller(tab->getWebView());
+        webkit_find_controller_search_finish(findController);
+    }
+}
+
+void BrayaWindow::findNext() {
+    if (activeTabIndex < 0) return;
+    
+    BrayaTab* tab = tabs[activeTabIndex].get();
+    WebKitFindController* findController = webkit_web_view_get_find_controller(tab->getWebView());
+    webkit_find_controller_search_next(findController);
+}
+
+void BrayaWindow::findPrevious() {
+    if (activeTabIndex < 0) return;
+    
+    BrayaTab* tab = tabs[activeTabIndex].get();
+    WebKitFindController* findController = webkit_web_view_get_find_controller(tab->getWebView());
+    webkit_find_controller_search_previous(findController);
+}
+
 void BrayaWindow::show() {
     gtk_window_present(GTK_WINDOW(window));
 }
@@ -748,6 +821,52 @@ void BrayaWindow::onDownloadsClicked(GtkWidget* widget, gpointer data) {
     window->showDownloads();
 }
 
+void BrayaWindow::onFindNextClicked(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    window->findNext();
+}
+
+void BrayaWindow::onFindPrevClicked(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    window->findPrevious();
+}
+
+void BrayaWindow::onFindCloseClicked(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    window->hideFindBar();
+}
+
+void BrayaWindow::onFindEntryChanged(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    if (window->activeTabIndex < 0) return;
+    
+    const char* searchText = gtk_editable_get_text(GTK_EDITABLE(widget));
+    if (strlen(searchText) == 0) {
+        gtk_label_set_text(GTK_LABEL(window->findMatchLabel), "");
+        return;
+    }
+    
+    BrayaTab* tab = window->tabs[window->activeTabIndex].get();
+    WebKitFindController* findController = webkit_web_view_get_find_controller(tab->getWebView());
+    
+    // Start new search
+    webkit_find_controller_search(findController, searchText, 
+        WEBKIT_FIND_OPTIONS_CASE_INSENSITIVE | WEBKIT_FIND_OPTIONS_WRAP_AROUND,
+        G_MAXUINT);
+    
+    // Connect to counted signal to update match label
+    g_signal_connect(findController, "counted-matches",
+        G_CALLBACK(+[](WebKitFindController* controller, guint matchCount, gpointer data) {
+            BrayaWindow* window = static_cast<BrayaWindow*>(data);
+            if (matchCount > 0) {
+                std::string label = std::to_string(matchCount) + " matches";
+                gtk_label_set_text(GTK_LABEL(window->findMatchLabel), label.c_str());
+            } else {
+                gtk_label_set_text(GTK_LABEL(window->findMatchLabel), "No matches");
+            }
+        }), window);
+}
+
 void BrayaWindow::onDevToolsClicked(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
     if (window->activeTabIndex >= 0) {
@@ -799,6 +918,9 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
             return TRUE;
         } else if (keyval == GDK_KEY_j) {
             window->showDownloads();
+            return TRUE;
+        } else if (keyval == GDK_KEY_f) {
+            window->showFindBar();
             return TRUE;
         }
     }

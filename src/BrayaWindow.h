@@ -30,6 +30,12 @@ public:
     // Downloads
     void showDownloads();
     
+    // Find in page
+    void showFindBar();
+    void hideFindBar();
+    void findNext();
+    void findPrevious();
+    
 private:
     void setupUI();
     void setupCSS();
@@ -52,6 +58,9 @@ private:
     GtkWidget* reloadBtn;
     GtkWidget* bookmarksBar;
     GtkWidget* statusBar;
+    GtkWidget* findBar;
+    GtkWidget* findEntry;
+    GtkWidget* findMatchLabel;
     GtkWidget* statusLabel;
     GtkWidget* tabStack;
     
@@ -80,6 +89,10 @@ private:
     static void onSettingsClicked(GtkWidget* widget, gpointer data);
     static void onDownloadsClicked(GtkWidget* widget, gpointer data);
     static void onDevToolsClicked(GtkWidget* widget, gpointer data);
+    static void onFindNextClicked(GtkWidget* widget, gpointer data);
+    static void onFindPrevClicked(GtkWidget* widget, gpointer data);
+    static void onFindCloseClicked(GtkWidget* widget, gpointer data);
+    static void onFindEntryChanged(GtkWidget* widget, gpointer data);
     static void onMinimizeClicked(GtkWidget* widget, gpointer data);
     static void onMaximizeClicked(GtkWidget* widget, gpointer data);
     static void onWindowCloseClicked(GtkWidget* widget, gpointer data);

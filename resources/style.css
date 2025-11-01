@@ -294,3 +294,17 @@ separator {
     background: rgba(255, 255, 255, 0.1);
     min-height: 1px;
 }
+
+/* Find Bar */
+.find-bar {
+    background: rgba(0, 0, 0, 0.3);
+    border-top: 1px solid rgba(0, 217, 255, 0.2);
+    padding: 5px;
+}
+
+.find-match-label {
+    color: #9ca3b0;
+    font-size: 12px;
+    margin: 0 10px;
+}
+
