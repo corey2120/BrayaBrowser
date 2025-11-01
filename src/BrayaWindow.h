@@ -8,6 +8,7 @@
 
 class BrayaTab;
 class BrayaSettings;
+class BrayaHistory;
 
 class BrayaWindow {
 public:
@@ -21,6 +22,9 @@ public:
     void createTab(const char* url = "about:braya");
     void closeTab(int index);
     void switchToTab(int index);
+    
+    // History
+    void showHistory();
     
 private:
     void setupUI();
@@ -55,6 +59,7 @@ private:
     
     // Settings
     std::unique_ptr<BrayaSettings> settings;
+    std::unique_ptr<BrayaHistory> history;
     
     // Callbacks
     static void onNewTabClicked(GtkWidget* widget, gpointer data);

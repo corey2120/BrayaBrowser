@@ -1,11 +1,12 @@
 #include "BrayaWindow.h"
 #include "BrayaTab.h"
 #include "BrayaSettings.h"
+#include "BrayaHistory.h"
 #include <iostream>
 #include <cstring>
 
 BrayaWindow::BrayaWindow(GtkApplication* app)
-    : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), settings(std::make_unique<BrayaSettings>()) {
+    : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), settings(std::make_unique<BrayaSettings>()), history(std::make_unique<BrayaHistory>()) {
     
     g_print("Creating Braya window...\n");
     
@@ -331,12 +332,19 @@ void BrayaWindow::createTab(const char* url) {
     
     tab->setTabButton(tabBtn);
     
-    // Connect to load-changed to update navigation buttons
+    // Connect to load-changed to update navigation buttons and history
     g_signal_connect(tab->getWebView(), "load-changed", 
         G_CALLBACK(+[](WebKitWebView* webView, WebKitLoadEvent loadEvent, gpointer data) {
             if (loadEvent == WEBKIT_LOAD_FINISHED) {
                 BrayaWindow* window = static_cast<BrayaWindow*>(data);
                 window->updateUI();
+                
+                // Add to history
+                const gchar* url = webkit_web_view_get_uri(webView);
+                const gchar* title = webkit_web_view_get_title(webView);
+                if (url && window->history) {
+                    window->history->addEntry(url, title ? title : "");
+                }
             }
         }), this);
     
@@ -522,6 +530,12 @@ void BrayaWindow::updateUI() {
     }
 }
 
+void BrayaWindow::showHistory() {
+    if (history) {
+        history->showHistoryDialog(GTK_WINDOW(window));
+    }
+}
+
 void BrayaWindow::show() {
     gtk_window_present(GTK_WINDOW(window));
 }
@@ -683,6 +697,9 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
             return TRUE;
         } else if (keyval == GDK_KEY_r) {
             window->onReloadClicked(NULL, window);
+            return TRUE;
+        } else if (keyval == GDK_KEY_h) {
+            window->showHistory();
             return TRUE;
         }
     }
