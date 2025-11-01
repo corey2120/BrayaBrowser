@@ -60,6 +60,32 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
         }
     }
     
+    // Setup download handling for WebContext
+    // Downloads created by webkit_policy_decision_download() should trigger this
+    if (!tabs.empty()) {
+        WebKitWebContext* context = webkit_web_context_get_default();
+        
+        // Suppress GLib warnings during connection attempt
+        g_log_set_handler("GLib-GObject", G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING, 
+            +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+        
+        gulong handler = g_signal_connect(context, "download-started",
+            G_CALLBACK(+[](WebKitWebContext* ctx, WebKitDownload* download, gpointer data) {
+                std::cout << "📥 Download caught by context!" << std::endl;
+                BrayaWindow* window = static_cast<BrayaWindow*>(data);
+                if (window && window->downloads) {
+                    window->downloads->handleDownload(download);
+                }
+            }), this);
+        
+        // Restore normal logging
+        g_log_set_handler("GLib-GObject", (GLogLevelFlags)(G_LOG_LEVEL_MASK), g_log_default_handler, nullptr);
+        
+        if (handler > 0) {
+            g_print("✓ WebContext download handler connected\n");
+        }
+    }
+    
     g_print("First tab created\n");
     
     // Connect keyboard shortcuts
@@ -337,42 +363,26 @@ void BrayaWindow::createTab(const char* url) {
     // Connect download handler via decide-policy and context
     WebKitWebContext* context = webkit_web_view_get_context(tab->getWebView());
     
-    // Connect to context's download-started signal  
-    // In WebKit2GTK 2.50, downloads are started via WebKitWebContext
-    static gboolean download_handler_connected = FALSE;
-    if (!download_handler_connected && context) {
-        // Try to connect, suppress error if signal doesn't exist
-        guint signal_id = g_signal_lookup("download-started", WEBKIT_TYPE_WEB_CONTEXT);
-        if (signal_id != 0) {
-            g_signal_connect(context, "download-started",
-                G_CALLBACK(+[](WebKitWebContext* ctx, WebKitDownload* download, gpointer data) {
-                    std::cout << "🔽 Download started!" << std::endl;
-                    BrayaWindow* window = static_cast<BrayaWindow*>(data);
-                    if (window->downloads) {
-                        window->downloads->handleDownload(download);
-                    }
-                }), this);
-            g_print("✓ Download handler connected\n");
-            download_handler_connected = TRUE;
-        } else {
-            // Try alternative: connect to webview's decide-policy
-            g_signal_connect(tab->getWebView(), "decide-policy",
-                G_CALLBACK(+[](WebKitWebView* webView, WebKitPolicyDecision* decision, 
-                               WebKitPolicyDecisionType type, gpointer data) -> gboolean {
-                    if (type == WEBKIT_POLICY_DECISION_TYPE_RESPONSE) {
-                        WebKitResponsePolicyDecision* response = WEBKIT_RESPONSE_POLICY_DECISION(decision);
-                        if (!webkit_response_policy_decision_is_mime_type_supported(response)) {
-                            std::cout << "🔽 Download via policy!" << std::endl;
-                            webkit_policy_decision_download(decision);
-                            return TRUE;
-                        }
-                    }
-                    return FALSE;
-                }), this);
-            g_print("✓ Download handler connected via policy\n");
-            download_handler_connected = TRUE;
-        }
-    }
+    // Modern WebKit2GTK 6.0 approach: handle downloads via policy decision
+    // Downloads are created when webkit_policy_decision_download() is called
+    g_signal_connect(tab->getWebView(), "decide-policy",
+        G_CALLBACK(+[](WebKitWebView* webView, WebKitPolicyDecision* decision, 
+                       WebKitPolicyDecisionType type, gpointer data) -> gboolean {
+            if (type == WEBKIT_POLICY_DECISION_TYPE_RESPONSE) {
+                WebKitResponsePolicyDecision* response = WEBKIT_RESPONSE_POLICY_DECISION(decision);
+                
+                // Check if this is a download (unsupported MIME type)
+                if (!webkit_response_policy_decision_is_mime_type_supported(response)) {
+                    std::cout << "🔽 Download triggered - allowing download..." << std::endl;
+                    
+                    // Tell WebKit to download - this will create a WebKitDownload
+                    // that we'll catch via the web context's download-started signal
+                    webkit_policy_decision_download(decision);
+                    return TRUE;
+                }
+            }
+            return FALSE;
+        }), this);
     
     // Add to stack
     char name[32];
