@@ -3,6 +3,7 @@
 #include "BrayaSettings.h"
 #include "BrayaHistory.h"
 #include "BrayaDownloads.h"
+#include "BrayaBookmarks.h"
 #include <iostream>
 #include <cstring>
 
@@ -10,7 +11,8 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), 
       settings(std::make_unique<BrayaSettings>()), 
       history(std::make_unique<BrayaHistory>()),
-      downloads(std::make_unique<BrayaDownloads>()) {
+      downloads(std::make_unique<BrayaDownloads>()),
+      bookmarksManager(std::make_unique<BrayaBookmarks>()) {
     
     g_print("Creating Braya window...\n");
     
@@ -700,6 +702,12 @@ void BrayaWindow::findPrevious() {
     webkit_find_controller_search_previous(findController);
 }
 
+void BrayaWindow::showBookmarksManager() {
+    if (bookmarksManager) {
+        bookmarksManager->showBookmarksManager(GTK_WINDOW(window));
+    }
+}
+
 void BrayaWindow::show() {
     gtk_window_present(GTK_WINDOW(window));
 }
@@ -921,6 +929,9 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
             return TRUE;
         } else if (keyval == GDK_KEY_f) {
             window->showFindBar();
+            return TRUE;
+        } else if (keyval == GDK_KEY_b) {
+            window->showBookmarksManager();
             return TRUE;
         }
     }

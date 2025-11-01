@@ -29,6 +29,7 @@ set(SOURCES
     src/BrayaSettings.cpp
     src/BrayaHistory.cpp
     src/BrayaDownloads.cpp
+    src/BrayaBookmarks.cpp
 )
 
 # Executable

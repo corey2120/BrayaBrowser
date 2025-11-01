@@ -10,6 +10,7 @@ class BrayaTab;
 class BrayaSettings;
 class BrayaHistory;
 class BrayaDownloads;
+class BrayaBookmarks;
 
 class BrayaWindow {
 public:
@@ -35,6 +36,9 @@ public:
     void hideFindBar();
     void findNext();
     void findPrevious();
+    
+    // Bookmarks
+    void showBookmarksManager();
     
 private:
     void setupUI();
@@ -74,6 +78,7 @@ private:
     std::unique_ptr<BrayaSettings> settings;
     std::unique_ptr<BrayaHistory> history;
     std::unique_ptr<BrayaDownloads> downloads;
+    std::unique_ptr<BrayaBookmarks> bookmarksManager;
     
     // Callbacks
     static void onNewTabClicked(GtkWidget* widget, gpointer data);
