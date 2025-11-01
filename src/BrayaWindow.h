@@ -40,9 +40,13 @@ public:
     // Bookmarks
     void showBookmarksManager();
     
+    // Theme
+    void applyTheme(int themeId);
+    
 private:
     void setupUI();
     void setupCSS();
+    void loadThemeCSS(const std::string& themePath);
     void createSidebar();
     void createContentArea();
     void createNavbar();
@@ -67,6 +71,8 @@ private:
     GtkWidget* findMatchLabel;
     GtkWidget* statusLabel;
     GtkWidget* tabStack;
+    
+    GtkCssProvider* cssProvider;
     
     // Tab management
     std::vector<std::unique_ptr<BrayaTab>> tabs;

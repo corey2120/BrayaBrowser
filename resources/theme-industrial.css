@@ -1,0 +1,188 @@
+/* 🐕 Braya Browser - Industrial Theme */
+
+window {
+    background-color: #1a1d23;
+}
+
+/* Sidebar - INDUSTRIAL */
+.sidebar {
+    background: linear-gradient(180deg, #2d3139 0%, #1a1d23 100%);
+    border-right: 1px solid rgba(255, 152, 0, 0.2);
+    min-width: 56px;
+}
+
+/* Braya Logo */
+.braya-icon {
+    font-size: 24px;
+    padding: 12px 0;
+    text-shadow: 0 0 15px rgba(255, 152, 0, 0.5);
+}
+
+/* New Tab Button */
+.new-tab-btn {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+    border: 1px solid rgba(255, 152, 0, 0.3);
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 18px;
+    font-weight: 600;
+    margin: 6px;
+    min-height: 40px;
+    transition: all 0.2s ease;
+}
+
+.new-tab-btn:hover {
+    background: rgba(255, 152, 0, 0.25);
+    border-color: #ff9800;
+    box-shadow: 0 0 12px rgba(255, 152, 0, 0.4);
+}
+
+/* Tab Icons */
+.tab-icon {
+    background: rgba(255, 255, 255, 0.05);
+    color: #b0b8c0;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    margin: 4px;
+    font-size: 20px;
+    min-width: 48px;
+    min-height: 48px;
+    transition: all 0.2s ease;
+}
+
+.tab-icon:hover {
+    background: rgba(255, 152, 0, 0.2);
+    color: #ff9800;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3);
+}
+
+.tab-icon.active {
+    background: linear-gradient(135deg, #ff6f00 0%, #ff9800 100%);
+    color: white;
+    box-shadow: 0 4px 16px rgba(255, 152, 0, 0.5);
+}
+
+/* Settings & Downloads Icons */
+.settings-icon, .downloads-icon {
+    background: rgba(255, 255, 255, 0.08);
+    color: #8a9199;
+    border-radius: 8px;
+    padding: 10px;
+    margin: 4px;
+    font-size: 16px;
+    transition: all 0.2s ease;
+}
+
+.settings-icon:hover, .downloads-icon:hover {
+    background: rgba(255, 152, 0, 0.2);
+    color: #ff9800;
+}
+
+/* Top Bar */
+.top-bar {
+    background: linear-gradient(135deg, #2d3139 0%, #383d47 100%);
+    border-bottom: 1px solid rgba(255, 152, 0, 0.15);
+    padding: 8px 12px;
+}
+
+/* URL Bar */
+.url-bar {
+    background: rgba(0, 0, 0, 0.3);
+    color: #e0e6ed;
+    border: 2px solid rgba(255, 152, 0, 0.2);
+    border-radius: 24px;
+    padding: 10px 20px;
+    font-size: 14px;
+    min-height: 40px;
+    transition: all 0.2s ease;
+}
+
+.url-bar:focus {
+    border-color: #ff9800;
+    box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.15);
+    background: rgba(0, 0, 0, 0.4);
+    outline: none;
+}
+
+/* Navigation Buttons */
+.nav-button {
+    background: rgba(255, 152, 0, 0.1);
+    color: #ff9800;
+    border: 1px solid rgba(255, 152, 0, 0.25);
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 16px;
+    transition: all 0.2s ease;
+}
+
+.nav-button:hover {
+    background: rgba(255, 152, 0, 0.2);
+    border-color: #ff9800;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+}
+
+.nav-button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Action Buttons */
+.action-button {
+    background: rgba(255, 152, 0, 0.1);
+    color: #ff9800;
+    border: 1px solid rgba(255, 152, 0, 0.25);
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.action-button:hover {
+    background: rgba(255, 152, 0, 0.2);
+    border-color: #ff9800;
+    box-shadow: 0 2px 8px rgba(255, 152, 0, 0.25);
+}
+
+/* Bookmarks Bar */
+.bookmarks-bar {
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 152, 0, 0.15);
+    padding: 6px 12px;
+}
+
+.bookmark-button {
+    background: rgba(255, 152, 0, 0.08);
+    color: #c0c5cc;
+    border: 1px solid rgba(255, 152, 0, 0.2);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+
+.bookmark-button:hover {
+    background: rgba(255, 152, 0, 0.2);
+    color: #ff9800;
+    border-color: rgba(255, 152, 0, 0.4);
+}
+
+/* Find Bar */
+.find-bar {
+    background: rgba(0, 0, 0, 0.4);
+    border-top: 1px solid rgba(255, 152, 0, 0.2);
+    padding: 5px;
+}
+
+.find-match-label {
+    color: #9ca3b0;
+    font-size: 12px;
+    margin: 0 10px;
+}

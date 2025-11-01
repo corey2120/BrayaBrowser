@@ -4,6 +4,7 @@
 #include <gtk/gtk.h>
 #include <string>
 #include <map>
+#include <functional>
 
 class BrayaSettings {
 public:
@@ -26,6 +27,7 @@ public:
     BrayaSettings();
     void show(GtkWindow* parent);
     void applyToWindow(GtkWidget* window);  // Apply visual changes
+    void setThemeCallback(std::function<void(int)> callback) { themeCallback = callback; }
     
     // Getters
     Theme getTheme() const { return theme; }
@@ -102,6 +104,9 @@ private:
     
     // Advanced widgets
     GtkWidget* bookmarksSwitch;
+    
+    // Theme callback
+    std::function<void(int)> themeCallback;
     
     void createDialog(GtkWindow* parent);
     GtkWidget* createAppearanceTab();

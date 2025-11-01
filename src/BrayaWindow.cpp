@@ -12,7 +12,8 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
       settings(std::make_unique<BrayaSettings>()), 
       history(std::make_unique<BrayaHistory>()),
       downloads(std::make_unique<BrayaDownloads>()),
-      bookmarksManager(std::make_unique<BrayaBookmarks>()) {
+      bookmarksManager(std::make_unique<BrayaBookmarks>()),
+      cssProvider(nullptr) {
     
     g_print("Creating Braya window...\n");
     
@@ -24,6 +25,11 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     // Don't remove decorations - we'll use headerbar for Firefox-style controls
     
     g_print("Window created\n");
+    
+    // Connect theme callback
+    settings->setThemeCallback([this](int themeId) {
+        this->applyTheme(themeId);
+    });
     
     // Setup CSS
     setupCSS();
@@ -103,18 +109,70 @@ BrayaWindow::~BrayaWindow() {
 }
 
 void BrayaWindow::setupCSS() {
-    GtkCssProvider* provider = gtk_css_provider_new();
-    GFile* file = g_file_new_for_path("resources/style.css");
-    gtk_css_provider_load_from_file(provider, file);
+    // Load theme based on settings
+    int theme = settings->getTheme();
+    std::string themePath;
+    
+    switch(theme) {
+        case 0: // DARK
+            themePath = "resources/theme-dark.css";
+            break;
+        case 1: // LIGHT
+            themePath = "resources/theme-light.css";
+            break;
+        case 2: // INDUSTRIAL
+            themePath = "resources/theme-industrial.css";
+            break;
+        default:
+            themePath = "resources/theme-dark.css";
+    }
+    
+    loadThemeCSS(themePath);
+}
+
+void BrayaWindow::loadThemeCSS(const std::string& themePath) {
+    // Remove old provider if exists
+    if (cssProvider) {
+        gtk_style_context_remove_provider_for_display(
+            gdk_display_get_default(),
+            GTK_STYLE_PROVIDER(cssProvider)
+        );
+        g_object_unref(cssProvider);
+    }
+    
+    // Create new provider
+    cssProvider = gtk_css_provider_new();
+    GFile* file = g_file_new_for_path(themePath.c_str());
+    gtk_css_provider_load_from_file(cssProvider, file);
     g_object_unref(file);
     
     gtk_style_context_add_provider_for_display(
         gdk_display_get_default(),
-        GTK_STYLE_PROVIDER(provider),
+        GTK_STYLE_PROVIDER(cssProvider),
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
     );
     
-    g_object_unref(provider);
+    std::cout << "✓ Loaded theme: " << themePath << std::endl;
+}
+
+void BrayaWindow::applyTheme(int themeId) {
+    std::string themePath;
+    
+    switch(themeId) {
+        case 0: // DARK
+            themePath = "resources/theme-dark.css";
+            break;
+        case 1: // LIGHT
+            themePath = "resources/theme-light.css";
+            break;
+        case 2: // INDUSTRIAL
+            themePath = "resources/theme-industrial.css";
+            break;
+        default:
+            themePath = "resources/theme-dark.css";
+    }
+    
+    loadThemeCSS(themePath);
 }
 
 void BrayaWindow::setupUI() {

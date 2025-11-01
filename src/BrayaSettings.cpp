@@ -584,7 +584,13 @@ void BrayaSettings::setSearchEngine(const std::string& engine) { searchEngine = 
 // Callbacks
 void BrayaSettings::onThemeChanged(GtkComboBox* combo, gpointer data) {
     BrayaSettings* settings = static_cast<BrayaSettings*>(data);
-    settings->setTheme(static_cast<Theme>(gtk_combo_box_get_active(combo)));
+    int themeId = gtk_combo_box_get_active(combo);
+    settings->setTheme(static_cast<Theme>(themeId));
+    
+    // Call the callback immediately to apply theme
+    if (settings->themeCallback) {
+        settings->themeCallback(themeId);
+    }
 }
 
 void BrayaSettings::onFontSizeChanged(GtkSpinButton* button, gpointer data) {

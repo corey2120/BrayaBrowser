@@ -1,0 +1,185 @@
+/* 🐕 Braya Browser - Light Theme */
+
+window {
+    background-color: #f5f5f5;
+}
+
+/* Sidebar - LIGHT */
+.sidebar {
+    background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
+    border-right: 1px solid rgba(0, 100, 200, 0.2);
+    min-width: 56px;
+}
+
+/* Braya Logo */
+.braya-icon {
+    font-size: 24px;
+    padding: 12px 0;
+    text-shadow: 0 0 8px rgba(0, 100, 200, 0.3);
+}
+
+/* New Tab Button */
+.new-tab-btn {
+    background: rgba(0, 100, 200, 0.1);
+    color: #0064c8;
+    border: 1px solid rgba(0, 100, 200, 0.3);
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 18px;
+    font-weight: 600;
+    margin: 6px;
+    min-height: 40px;
+    transition: all 0.2s ease;
+}
+
+.new-tab-btn:hover {
+    background: rgba(0, 100, 200, 0.2);
+    border-color: #0064c8;
+    box-shadow: 0 0 12px rgba(0, 100, 200, 0.3);
+}
+
+/* Tab Icons */
+.tab-icon {
+    background: rgba(0, 0, 0, 0.05);
+    color: #333;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    margin: 4px;
+    font-size: 20px;
+    min-width: 48px;
+    min-height: 48px;
+    transition: all 0.2s ease;
+}
+
+.tab-icon:hover {
+    background: rgba(0, 100, 200, 0.15);
+    color: #0064c8;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 100, 200, 0.2);
+}
+
+.tab-icon.active {
+    background: linear-gradient(135deg, #0064c8 0%, #0080ff 100%);
+    color: white;
+    box-shadow: 0 4px 16px rgba(0, 100, 200, 0.4);
+}
+
+/* Settings & Downloads Icons */
+.settings-icon, .downloads-icon {
+    background: rgba(0, 0, 0, 0.05);
+    color: #555;
+    border-radius: 8px;
+    padding: 10px;
+    margin: 4px;
+    font-size: 16px;
+    transition: all 0.2s ease;
+}
+
+.settings-icon:hover, .downloads-icon:hover {
+    background: rgba(0, 100, 200, 0.1);
+    color: #0064c8;
+}
+
+/* Top Bar */
+.top-bar {
+    background: linear-gradient(135deg, #ffffff 0%, #f0f4f8 100%);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    padding: 8px 12px;
+}
+
+/* URL Bar */
+.url-bar {
+    background: white;
+    color: #333;
+    border: 2px solid rgba(0, 100, 200, 0.2);
+    border-radius: 24px;
+    padding: 10px 20px;
+    font-size: 14px;
+    min-height: 40px;
+    transition: all 0.2s ease;
+}
+
+.url-bar:focus {
+    border-color: #0064c8;
+    box-shadow: 0 0 0 3px rgba(0, 100, 200, 0.1);
+    outline: none;
+}
+
+/* Navigation Buttons */
+.nav-button {
+    background: rgba(0, 100, 200, 0.08);
+    color: #0064c8;
+    border: 1px solid rgba(0, 100, 200, 0.2);
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 16px;
+    transition: all 0.2s ease;
+}
+
+.nav-button:hover {
+    background: rgba(0, 100, 200, 0.15);
+    border-color: #0064c8;
+    transform: translateY(-1px);
+}
+
+.nav-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Action Buttons */
+.action-button {
+    background: rgba(0, 100, 200, 0.08);
+    color: #0064c8;
+    border: 1px solid rgba(0, 100, 200, 0.2);
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.action-button:hover {
+    background: rgba(0, 100, 200, 0.15);
+    border-color: #0064c8;
+}
+
+/* Bookmarks Bar */
+.bookmarks-bar {
+    background: #fafbfc;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    padding: 6px 12px;
+}
+
+.bookmark-button {
+    background: rgba(0, 100, 200, 0.05);
+    color: #333;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+
+.bookmark-button:hover {
+    background: rgba(0, 100, 200, 0.12);
+    color: #0064c8;
+    border-color: rgba(0, 100, 200, 0.3);
+}
+
+/* Find Bar */
+.find-bar {
+    background: rgba(255, 255, 255, 0.95);
+    border-top: 1px solid rgba(0, 100, 200, 0.2);
+    padding: 5px;
+}
+
+.find-match-label {
+    color: #666;
+    font-size: 12px;
+    margin: 0 10px;
+}

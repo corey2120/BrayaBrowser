@@ -1,0 +1,310 @@
+/* Rounded window corners */
+window.rounded-window {
+    border-radius: 12px;
+}
+
+/* Braya logo in headerbar */
+.braya-logo {
+    font-size: 20px;
+    margin-left: 6px;
+    margin-right: 8px;
+}
+
+/* 🐕 Braya Browser - Refined Zen Style */
+
+window {
+    background-color: #0a0f14;
+}
+
+/* Sidebar - ZEN STYLE */
+.sidebar {
+    background: linear-gradient(180deg, #0f1419 0%, #0a0f14 100%);
+    border-right: 1px solid rgba(0, 217, 255, 0.15);
+    min-width: 56px;
+}
+
+/* Braya Logo */
+.braya-icon {
+    font-size: 24px;
+    padding: 12px 0;
+    text-shadow: 0 0 15px rgba(0, 217, 255, 0.5);
+}
+
+/* New Tab Button - ZEN SIZE */
+.new-tab-btn {
+    background: rgba(0, 217, 255, 0.1);
+    color: #00d9ff;
+    border: 1px solid rgba(0, 217, 255, 0.25);
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 18px;
+    font-weight: 600;
+    margin: 6px;
+    min-height: 40px;
+    transition: all 0.2s ease;
+}
+
+.new-tab-btn:hover {
+    background: rgba(0, 217, 255, 0.25);
+    border-color: #00d9ff;
+    box-shadow: 0 0 12px rgba(0, 217, 255, 0.4);
+}
+
+/* Tab Buttons - Clean and simple */
+.tab-button {
+    background: rgba(255, 255, 255, 0.03);
+    border: none;
+    border-radius: 10px;
+    padding: 0;
+    margin: 4px;
+    min-height: 48px;
+    min-width: 48px;
+    transition: all 0.15s ease;
+}
+
+.tab-button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateX(2px);
+}
+
+.tab-button.active {
+    background: rgba(0, 217, 255, 0.15);
+    box-shadow: 0 0 12px rgba(0, 217, 255, 0.3);
+}
+
+/* Favicon area - centered */
+.tab-favicon {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+/* Headerbar / Titlebar - Firefox style COMPACT */
+headerbar.titlebar {
+    background: linear-gradient(90deg, #0f1419 0%, #1a1f26 100%);
+    border-bottom: 1px solid rgba(0, 217, 255, 0.1);
+    min-height: 36px;
+    padding: 0;
+}
+
+headerbar.titlebar * {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* Navbar boxes */
+.navbar-left {
+    margin: 0;
+    padding: 0 4px;
+}
+
+.navbar-right {
+    margin: 0;
+    padding: 0 4px;
+}
+
+/* Navigation Buttons - Minimal like Firefox */
+.nav-btn {
+    background: transparent;
+    color: #9ca3b0;
+    border: none;
+    border-radius: 4px;
+    padding: 4px;
+    margin: 0 1px;
+    min-width: 28px;
+    min-height: 28px;
+    transition: all 0.2s ease;
+}
+
+.nav-btn image {
+    -gtk-icon-size: 16px;
+}
+
+.nav-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #00d9ff;
+}
+
+.nav-btn:disabled {
+    opacity: 0.4;
+    color: #6b7280;
+}
+/* URL Entry - Expanding to fill space, Firefox-like */
+.url-entry {
+    background: rgba(0, 0, 0, 0.4);
+    color: #e0e6ed;
+    border: 1px solid rgba(0, 217, 255, 0.2);
+    border-radius: 6px;
+    padding: 3px 10px;
+    min-height: 28px;
+    font-size: 13px;
+    font-family: 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+.url-entry:focus {
+    border-color: #00d9ff;
+    box-shadow: 0 0 0 2px rgba(0, 217, 255, 0.15),
+                inset 0 1px 4px rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0.5);
+    outline: none;
+}
+
+/* Bookmarks Bar - Clean Rounded */
+.bookmarks-bar {
+    background: linear-gradient(90deg, #0f1419 0%, #1a1f26 100%);
+    border-bottom: 1px solid rgba(0, 217, 255, 0.1);
+    padding: 4px 12px;
+}
+
+.bookmark-btn {
+    background: rgba(255, 255, 255, 0.02);
+    color: #c8d0e0;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    padding: 4px 10px;
+    margin: 0 2px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.bookmark-btn:hover {
+    background: rgba(0, 217, 255, 0.12);
+    border-color: rgba(0, 217, 255, 0.3);
+    color: #00d9ff;
+    box-shadow: 0 0 6px rgba(0, 217, 255, 0.2);
+}
+
+/* Status Bar - Subtle */
+.status-bar {
+    background: linear-gradient(90deg, #0a0f14 0%, #0f1419 100%);
+    border-top: 1px solid rgba(0, 217, 255, 0.1);
+    padding: 4px 12px;
+    font-size: 11px;
+    color: rgba(156, 163, 176, 0.7);
+}
+
+/* Settings Button - Refined */
+.settings-btn {
+    background: rgba(255, 255, 255, 0.02);
+    color: #9ca3b0;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 8px;
+    margin: 4px;
+    min-height: 36px;
+    font-size: 16px;
+    transition: all 0.2s ease;
+}
+
+.settings-btn:hover {
+    background: rgba(0, 217, 255, 0.15);
+    color: #00d9ff;
+    border-color: rgba(0, 217, 255, 0.3);
+    box-shadow: 0 0 10px rgba(0, 217, 255, 0.2);
+}
+
+/* Braya Title */
+.braya-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #00d9ff;
+    text-shadow: 0 0 10px rgba(0, 217, 255, 0.4);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+
+/* Separator */
+separator {
+    background: rgba(0, 217, 255, 0.15);
+    min-height: 1px;
+}
+
+/* Additional action buttons - Minimal Clean */
+.action-btn {
+    background: transparent;
+    color: #9ca3b0;
+    border: none;
+    border-radius: 4px;
+    padding: 4px;
+    margin: 0 1px;
+    min-width: 28px;
+    min-height: 28px;
+    transition: all 0.2s ease;
+}
+
+.action-btn image {
+    -gtk-icon-size: 16px;
+}
+
+.action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #00d9ff;
+}
+
+/* Window control buttons - Using Kora icons */
+.window-btn {
+    background: rgba(255, 255, 255, 0.05);
+    color: #9ca3b0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 4px;
+    margin: 0 2px;
+    min-width: 28px;
+    min-height: 28px;
+    transition: all 0.2s ease;
+}
+
+.window-btn image {
+    -gtk-icon-size: 14px;
+}
+
+.window-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #fff;
+}
+
+.window-btn-close {
+    background: rgba(255, 80, 80, 0.15);
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 80, 80, 0.3);
+    border-radius: 4px;
+    padding: 4px;
+    margin: 0 2px;
+    margin-right: 4px;
+    min-width: 28px;
+    min-height: 28px;
+    transition: all 0.2s ease;
+}
+
+.window-btn-close image {
+    -gtk-icon-size: 14px;
+}
+
+.window-btn-close:hover {
+    background: rgba(255, 80, 80, 0.85);
+    color: #fff;
+    border-color: rgba(255, 80, 80, 0.95);
+}
+
+/* Separator */
+separator {
+    background: rgba(255, 255, 255, 0.1);
+    min-height: 1px;
+}
+
+/* Find Bar */
+.find-bar {
+    background: rgba(0, 0, 0, 0.3);
+    border-top: 1px solid rgba(0, 217, 255, 0.2);
+    padding: 5px;
+}
+
+.find-match-label {
+    color: #9ca3b0;
+    font-size: 12px;
+    margin: 0 10px;
+}
+
