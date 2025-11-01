@@ -2,11 +2,15 @@
 #include "BrayaTab.h"
 #include "BrayaSettings.h"
 #include "BrayaHistory.h"
+#include "BrayaDownloads.h"
 #include <iostream>
 #include <cstring>
 
 BrayaWindow::BrayaWindow(GtkApplication* app)
-    : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), settings(std::make_unique<BrayaSettings>()), history(std::make_unique<BrayaHistory>()) {
+    : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), 
+      settings(std::make_unique<BrayaSettings>()), 
+      history(std::make_unique<BrayaHistory>()),
+      downloads(std::make_unique<BrayaDownloads>()) {
     
     g_print("Creating Braya window...\n");
     
@@ -299,6 +303,16 @@ void BrayaWindow::createStatusBar() {
 void BrayaWindow::createTab(const char* url) {
     auto tab = std::make_unique<BrayaTab>(nextTabId++, url);
     
+    // Connect download handler
+    WebKitWebContext* context = webkit_web_view_get_context(tab->getWebView());
+    g_signal_connect(context, "download-started", 
+        G_CALLBACK(+[](WebKitWebContext* context, WebKitDownload* download, gpointer data) {
+            BrayaWindow* window = static_cast<BrayaWindow*>(data);
+            if (window->downloads) {
+                window->downloads->handleDownload(download);
+            }
+        }), this);
+    
     // Add to stack
     char name[32];
     snprintf(name, sizeof(name), "tab-%d", tab->getId());
@@ -536,6 +550,12 @@ void BrayaWindow::showHistory() {
     }
 }
 
+void BrayaWindow::showDownloads() {
+    if (downloads) {
+        downloads->showDownloadsDialog(GTK_WINDOW(window));
+    }
+}
+
 void BrayaWindow::show() {
     gtk_window_present(GTK_WINDOW(window));
 }
@@ -700,6 +720,9 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
             return TRUE;
         } else if (keyval == GDK_KEY_h) {
             window->showHistory();
+            return TRUE;
+        } else if (keyval == GDK_KEY_j) {
+            window->showDownloads();
             return TRUE;
         }
     }
