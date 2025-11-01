@@ -1,19 +1,10 @@
-# Build directories
 build/
-*.o
-*.so
-
-# Logs
 *.log
-
-# IDE
+*.md.backup
+.cache/
 .vscode/
-.idea/
-
-# Backups
-*.backup
-*~
-
-# OS
-.DS_Store
-Thumbs.db
+release-*/
+*.tar.gz
+*.tar.gz.sha256
+*.rpm
+rpm-output/

@@ -43,6 +43,11 @@ target_link_libraries(braya-browser
     ${WEBKIT_LIBRARIES}
 )
 
-# Install
+# Install targets
 install(TARGETS braya-browser DESTINATION bin)
-install(FILES resources/style.css DESTINATION share/braya-browser)
+
+# Install resources
+install(FILES resources/style.css DESTINATION share/braya-browser/resources)
+install(FILES resources/style-light.css DESTINATION share/braya-browser/resources)
+install(FILES resources/style-industrial.css DESTINATION share/braya-browser/resources)
+install(FILES resources/home.html DESTINATION share/braya-browser/resources)
