@@ -30,6 +30,8 @@ set(SOURCES
     src/BrayaHistory.cpp
     src/BrayaDownloads.cpp
     src/BrayaBookmarks.cpp
+    src/TabGroup.cpp
+    src/BrayaCustomization.cpp
 )
 
 # Executable

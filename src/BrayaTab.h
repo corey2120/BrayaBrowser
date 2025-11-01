@@ -11,6 +11,7 @@ public:
     ~BrayaTab();
     
     int getId() const { return id; }
+    int getTabId() const { return id; }
     WebKitWebView* getWebView() { return webView; }
     GtkWidget* getScrolledWindow() { return scrolledWindow; }
     GtkWidget* getTabButton() { return tabButton; }

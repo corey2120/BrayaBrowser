@@ -1,4 +1,5 @@
 #include "BrayaSettings.h"
+#include "BrayaCustomization.h"
 #include <iostream>
 #include <fstream>
 
@@ -193,6 +194,17 @@ GtkWidget* BrayaSettings::createAppearanceTab() {
     gtk_widget_set_hexpand(themeCombo, TRUE);
     g_signal_connect(themeCombo, "changed", G_CALLBACK(onThemeChanged), this);
     gtk_grid_attach(GTK_GRID(themeGrid), themeCombo, 1, 0, 1, 1);
+    
+    // Advanced customization button
+    GtkWidget* advancedBtn = gtk_button_new_with_label("🎨 Advanced Customization");
+    g_signal_connect_swapped(advancedBtn, "clicked", G_CALLBACK(+[](BrayaSettings* settings) {
+        static BrayaCustomization* customization = nullptr;
+        if (!customization) {
+            customization = new BrayaCustomization();
+        }
+        customization->show(GTK_WINDOW(settings->dialog));
+    }), this);
+    gtk_grid_attach(GTK_GRID(themeGrid), advancedBtn, 1, 1, 1, 1);
     
     gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     

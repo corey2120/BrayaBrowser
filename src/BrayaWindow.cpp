@@ -4,11 +4,12 @@
 #include "BrayaHistory.h"
 #include "BrayaDownloads.h"
 #include "BrayaBookmarks.h"
+#include "TabGroup.h"
 #include <iostream>
 #include <cstring>
 
 BrayaWindow::BrayaWindow(GtkApplication* app)
-    : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), 
+    : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), nextGroupId(1),
       settings(std::make_unique<BrayaSettings>()), 
       history(std::make_unique<BrayaHistory>()),
       downloads(std::make_unique<BrayaDownloads>()),
@@ -1004,4 +1005,111 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
     }
     
     return FALSE;
+}
+
+// Tab Groups Implementation
+void BrayaWindow::createTabGroup(const std::string& name, const std::string& color) {
+    auto group = std::make_unique<TabGroup>(name, color);
+    tabGroups.push_back(std::move(group));
+    std::cout << "✓ Created tab group: " << name << " (" << color << ")" << std::endl;
+}
+
+void BrayaWindow::addTabToGroup(int tabId, int groupId) {
+    if (groupId < 0 || groupId >= tabGroups.size()) return;
+    
+    // Remove from old group if exists
+    removeTabFromGroup(tabId);
+    
+    // Add to new group
+    tabGroups[groupId]->addTab(tabId);
+    tabToGroup[tabId] = groupId;
+    
+    // Update tab visual indicator
+    for (auto& tab : tabs) {
+        if (tab->getTabId() == tabId) {
+            GtkWidget* tabButton = tab->getTabButton();
+            if (tabButton) {
+                // Add colored border indicator
+                std::string css = "border-left: 3px solid " + tabGroups[groupId]->getColor() + ";";
+                // Apply CSS inline
+            }
+        }
+    }
+}
+
+void BrayaWindow::removeTabFromGroup(int tabId) {
+    auto it = tabToGroup.find(tabId);
+    if (it != tabToGroup.end()) {
+        int groupId = it->second;
+        if (groupId >= 0 && groupId < tabGroups.size()) {
+            tabGroups[groupId]->removeTab(tabId);
+        }
+        tabToGroup.erase(it);
+    }
+}
+
+void BrayaWindow::toggleGroupCollapse(int groupId) {
+    if (groupId < 0 || groupId >= tabGroups.size()) return;
+    
+    TabGroup* group = tabGroups[groupId].get();
+    group->setCollapsed(!group->isCollapsed());
+    
+    // Hide/show tabs in the group
+    for (int tabId : group->getTabs()) {
+        for (auto& tab : tabs) {
+            if (tab->getTabId() == tabId) {
+                GtkWidget* tabButton = tab->getTabButton();
+                if (tabButton) {
+                    gtk_widget_set_visible(tabButton, !group->isCollapsed());
+                }
+            }
+        }
+    }
+}
+
+void BrayaWindow::showTabContextMenu(int tabId) {
+    GtkWidget* menu = gtk_popover_menu_new_from_model(nullptr);
+    GMenu* menuModel = g_menu_new();
+    
+    // Add menu items
+    GMenuItem* newGroup = g_menu_item_new("New Group", nullptr);
+    g_menu_append_item(menuModel, newGroup);
+    
+    // Add existing groups
+    for (size_t i = 0; i < tabGroups.size(); i++) {
+        std::string label = "Add to: " + tabGroups[i]->getName();
+        GMenuItem* item = g_menu_item_new(label.c_str(), nullptr);
+        g_menu_append_item(menuModel, item);
+        g_object_unref(item);
+    }
+    
+    g_object_unref(newGroup);
+    gtk_popover_set_child(GTK_POPOVER(menu), GTK_WIDGET(menuModel));
+}
+
+void BrayaWindow::onTabRightClick(GtkGestureClick* gesture, int n_press, double x, double y, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    
+    // Show context menu with group options
+    GtkWidget* menu = gtk_popover_new();
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_widget_set_margin_start(box, 10);
+    gtk_widget_set_margin_end(box, 10);
+    gtk_widget_set_margin_top(box, 10);
+    gtk_widget_set_margin_bottom(box, 10);
+    
+    // Create group button
+    GtkWidget* createBtn = gtk_button_new_with_label("📁 Create New Group");
+    gtk_box_append(GTK_BOX(box), createBtn);
+    
+    // Add to group buttons
+    for (size_t i = 0; i < window->tabGroups.size(); i++) {
+        std::string label = "➕ " + window->tabGroups[i]->getName();
+        GtkWidget* btn = gtk_button_new_with_label(label.c_str());
+        gtk_box_append(GTK_BOX(box), btn);
+    }
+    
+    gtk_popover_set_child(GTK_POPOVER(menu), box);
+    gtk_widget_set_parent(menu, GTK_WIDGET(gesture));
+    gtk_popover_popup(GTK_POPOVER(menu));
 }

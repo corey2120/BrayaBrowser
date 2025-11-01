@@ -5,12 +5,14 @@
 #include <webkit/webkit.h>
 #include <vector>
 #include <memory>
+#include <map>
 
 class BrayaTab;
 class BrayaSettings;
 class BrayaHistory;
 class BrayaDownloads;
 class BrayaBookmarks;
+class TabGroup;
 
 class BrayaWindow {
 public:
@@ -39,6 +41,13 @@ public:
     
     // Bookmarks
     void showBookmarksManager();
+    
+    // Tab Groups
+    void createTabGroup(const std::string& name, const std::string& color);
+    void addTabToGroup(int tabId, int groupId);
+    void removeTabFromGroup(int tabId);
+    void toggleGroupCollapse(int groupId);
+    void showTabContextMenu(int tabId);
     
     // Theme
     void applyTheme(int themeId);
@@ -80,6 +89,11 @@ private:
     int nextTabId;
     bool showBookmarksBar;
     
+    // Tab groups
+    std::vector<std::unique_ptr<TabGroup>> tabGroups;
+    std::map<int, int> tabToGroup; // tabId -> groupId
+    int nextGroupId;
+    
     // Settings
     std::unique_ptr<BrayaSettings> settings;
     std::unique_ptr<BrayaHistory> history;
@@ -108,6 +122,7 @@ private:
     static void onMaximizeClicked(GtkWidget* widget, gpointer data);
     static void onWindowCloseClicked(GtkWidget* widget, gpointer data);
     static gboolean onKeyPress(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data);
+    static void onTabRightClick(GtkGestureClick* gesture, int n_press, double x, double y, gpointer data);
     
     void navigateTo(const char* url);
     void updateUI();
