@@ -36,13 +36,27 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     // Create first tab (this will give us access to WebContext)
     createTab();
     
-    // Try connecting to WebContext download signal with g_list_signal_query to check first
+    // Setup download handling for WebContext
+    // In WebKit2GTK 2.50, we need to connect to the default context
     if (!tabs.empty()) {
-        WebKitWebContext* context = webkit_web_view_get_context(tabs[0]->getWebView());
-        if (context) {
-            // WebKitWebContext might have "download-started" in some versions
-            // Try connecting and handle gracefully if it fails
-            g_print("Attempting to connect download handler...\n");
+        WebKitWebContext* context = webkit_web_context_get_default();
+        g_print("Connecting to WebContext for downloads...\n");
+        
+        // Try using GObject signal connection with error suppression
+        GError* error = nullptr;
+        gulong handler = g_signal_connect_data(context, "download-started",
+            G_CALLBACK(+[](WebKitWebContext* ctx, WebKitDownload* download, gpointer data) {
+                std::cout << "🔽 Download started via context!" << std::endl;
+                BrayaWindow* window = static_cast<BrayaWindow*>(data);
+                if (window && window->downloads) {
+                    window->downloads->handleDownload(download);
+                }
+            }), this, nullptr, (GConnectFlags)0);
+        
+        if (handler > 0) {
+            g_print("✓ Download handler connected (id: %lu)\n", handler);
+        } else {
+            g_print("⚠ Could not connect download-started, using fallback\n");
         }
     }
     
@@ -142,6 +156,13 @@ void BrayaWindow::createSidebar() {
     gtk_widget_add_css_class(newTabBtn, "new-tab-btn");
     g_signal_connect(newTabBtn, "clicked", G_CALLBACK(onNewTabClicked), this);
     gtk_box_append(GTK_BOX(sidebar), newTabBtn);
+    
+    // Downloads button above settings
+    GtkWidget* downloadsBtn = gtk_button_new_with_label("📥");
+    gtk_widget_set_tooltip_text(downloadsBtn, "Downloads (Ctrl+J)");
+    gtk_widget_add_css_class(downloadsBtn, "settings-btn");
+    g_signal_connect(downloadsBtn, "clicked", G_CALLBACK(onDownloadsClicked), this);
+    gtk_box_append(GTK_BOX(sidebar), downloadsBtn);
     
     // Settings button at bottom
     GtkWidget* settingsBtn = gtk_button_new_with_label("⚙");
@@ -252,13 +273,6 @@ void BrayaWindow::createNavbar() {
     gtk_widget_add_css_class(devToolsBtn, "action-btn");
     g_signal_connect(devToolsBtn, "clicked", G_CALLBACK(onDevToolsClicked), this);
     gtk_box_append(GTK_BOX(rightBox), devToolsBtn);
-    
-    // Downloads button
-    GtkWidget* downloadsBtn = gtk_button_new_from_icon_name("folder-download-symbolic");
-    gtk_widget_set_tooltip_text(downloadsBtn, "Downloads (Ctrl+J)");
-    gtk_widget_add_css_class(downloadsBtn, "action-btn");
-    g_signal_connect(downloadsBtn, "clicked", G_CALLBACK(onDownloadsClicked), this);
-    gtk_box_append(GTK_BOX(rightBox), downloadsBtn);
     
     // Settings button
     GtkWidget* settingsBtn = gtk_button_new_from_icon_name("open-menu-symbolic");
