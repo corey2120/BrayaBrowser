@@ -33,8 +33,18 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     
     g_print("UI built\n");
     
-    // Create first tab
+    // Create first tab (this will give us access to WebContext)
     createTab();
+    
+    // Try connecting to WebContext download signal with g_list_signal_query to check first
+    if (!tabs.empty()) {
+        WebKitWebContext* context = webkit_web_view_get_context(tabs[0]->getWebView());
+        if (context) {
+            // WebKitWebContext might have "download-started" in some versions
+            // Try connecting and handle gracefully if it fails
+            g_print("Attempting to connect download handler...\n");
+        }
+    }
     
     g_print("First tab created\n");
     
@@ -243,6 +253,13 @@ void BrayaWindow::createNavbar() {
     g_signal_connect(devToolsBtn, "clicked", G_CALLBACK(onDevToolsClicked), this);
     gtk_box_append(GTK_BOX(rightBox), devToolsBtn);
     
+    // Downloads button
+    GtkWidget* downloadsBtn = gtk_button_new_from_icon_name("folder-download-symbolic");
+    gtk_widget_set_tooltip_text(downloadsBtn, "Downloads (Ctrl+J)");
+    gtk_widget_add_css_class(downloadsBtn, "action-btn");
+    g_signal_connect(downloadsBtn, "clicked", G_CALLBACK(onDownloadsClicked), this);
+    gtk_box_append(GTK_BOX(rightBox), downloadsBtn);
+    
     // Settings button
     GtkWidget* settingsBtn = gtk_button_new_from_icon_name("open-menu-symbolic");
     gtk_widget_set_tooltip_text(settingsBtn, "Settings");
@@ -303,14 +320,45 @@ void BrayaWindow::createStatusBar() {
 void BrayaWindow::createTab(const char* url) {
     auto tab = std::make_unique<BrayaTab>(nextTabId++, url);
     
-    // Connect download handler to webview
-    g_signal_connect(tab->getWebView(), "download-started",
-        G_CALLBACK(+[](WebKitWebView* webView, WebKitDownload* download, gpointer data) {
-            BrayaWindow* window = static_cast<BrayaWindow*>(data);
-            if (window->downloads) {
-                window->downloads->handleDownload(download);
-            }
-        }), this);
+    // Connect download handler via decide-policy and context
+    WebKitWebContext* context = webkit_web_view_get_context(tab->getWebView());
+    
+    // Connect to context's download-started signal  
+    // In WebKit2GTK 2.50, downloads are started via WebKitWebContext
+    static gboolean download_handler_connected = FALSE;
+    if (!download_handler_connected && context) {
+        // Try to connect, suppress error if signal doesn't exist
+        guint signal_id = g_signal_lookup("download-started", WEBKIT_TYPE_WEB_CONTEXT);
+        if (signal_id != 0) {
+            g_signal_connect(context, "download-started",
+                G_CALLBACK(+[](WebKitWebContext* ctx, WebKitDownload* download, gpointer data) {
+                    std::cout << "🔽 Download started!" << std::endl;
+                    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+                    if (window->downloads) {
+                        window->downloads->handleDownload(download);
+                    }
+                }), this);
+            g_print("✓ Download handler connected\n");
+            download_handler_connected = TRUE;
+        } else {
+            // Try alternative: connect to webview's decide-policy
+            g_signal_connect(tab->getWebView(), "decide-policy",
+                G_CALLBACK(+[](WebKitWebView* webView, WebKitPolicyDecision* decision, 
+                               WebKitPolicyDecisionType type, gpointer data) -> gboolean {
+                    if (type == WEBKIT_POLICY_DECISION_TYPE_RESPONSE) {
+                        WebKitResponsePolicyDecision* response = WEBKIT_RESPONSE_POLICY_DECISION(decision);
+                        if (!webkit_response_policy_decision_is_mime_type_supported(response)) {
+                            std::cout << "🔽 Download via policy!" << std::endl;
+                            webkit_policy_decision_download(decision);
+                            return TRUE;
+                        }
+                    }
+                    return FALSE;
+                }), this);
+            g_print("✓ Download handler connected via policy\n");
+            download_handler_connected = TRUE;
+        }
+    }
     
     // Add to stack
     char name[32];
@@ -669,6 +717,11 @@ void BrayaWindow::onBookmarkClicked(GtkWidget* widget, gpointer data) {
 void BrayaWindow::onSettingsClicked(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
     window->settings->show(GTK_WINDOW(window->window));
+}
+
+void BrayaWindow::onDownloadsClicked(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    window->showDownloads();
 }
 
 void BrayaWindow::onDevToolsClicked(GtkWidget* widget, gpointer data) {

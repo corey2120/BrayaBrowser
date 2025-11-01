@@ -78,6 +78,7 @@ private:
     static void onHomeClicked(GtkWidget* widget, gpointer data);
     static void onBookmarkClicked(GtkWidget* widget, gpointer data);
     static void onSettingsClicked(GtkWidget* widget, gpointer data);
+    static void onDownloadsClicked(GtkWidget* widget, gpointer data);
     static void onDevToolsClicked(GtkWidget* widget, gpointer data);
     static void onMinimizeClicked(GtkWidget* widget, gpointer data);
     static void onMaximizeClicked(GtkWidget* widget, gpointer data);

@@ -1,0 +1,6 @@
+The issue is likely that:
+1. The signal might be named differently in WebKit2GTK-4.1
+2. Or we need to connect it at a different point
+3. Or the download needs to be explicitly allowed
+
+Let me check the WebKit2GTK API for downloads...
