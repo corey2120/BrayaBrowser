@@ -66,7 +66,7 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
         WebKitWebContext* context = webkit_web_context_get_default();
         
         // Suppress GLib warnings during connection attempt
-        g_log_set_handler("GLib-GObject", G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING, 
+        g_log_set_handler("GLib-GObject", (GLogLevelFlags)(G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING), 
             +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
         
         gulong handler = g_signal_connect(context, "download-started",
