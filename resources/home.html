@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>New Tab</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0f14;
+            color: #e0e6ed;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+        
+        .logo {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+        
+        h1 {
+            font-size: 32px;
+            font-weight: 600;
+            color: #e0e6ed;
+            margin-bottom: 8px;
+        }
+        
+        .tagline {
+            font-size: 15px;
+            color: #9ca3b0;
+        }
+        
+        .quick-links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+            margin-bottom: 50px;
+        }
+        
+        .quick-link {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 24px 16px;
+            text-align: center;
+            text-decoration: none;
+            color: #e0e6ed;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .quick-link:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(0, 217, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        
+        .quick-link-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+        
+        .quick-link-name {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .shortcuts {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 24px;
+        }
+        
+        .shortcuts h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            color: #00d9ff;
+        }
+        
+        .shortcut-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+        
+        .shortcut {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+        }
+        
+        .shortcut-name {
+            font-size: 13px;
+            color: #c8d0e0;
+        }
+        
+        .shortcut-key {
+            font-family: 'SF Mono', 'Consolas', monospace;
+            font-size: 12px;
+            background: rgba(0, 217, 255, 0.12);
+            color: #00d9ff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🐕</div>
+            <h1>Braya Browser</h1>
+            <p class="tagline">Fast, minimal, and built for simplicity</p>
+        </div>
+        
+        <div class="quick-links">
+            <a href="https://duckduckgo.com" class="quick-link">
+                <div class="quick-link-icon">🦆</div>
+                <div class="quick-link-name">DuckDuckGo</div>
+            </a>
+            <a href="https://github.com" class="quick-link">
+                <div class="quick-link-icon">🐙</div>
+                <div class="quick-link-name">GitHub</div>
+            </a>
+            <a href="https://news.ycombinator.com" class="quick-link">
+                <div class="quick-link-icon">📰</div>
+                <div class="quick-link-name">Hacker News</div>
+            </a>
+            <a href="https://youtube.com" class="quick-link">
+                <div class="quick-link-icon">📺</div>
+                <div class="quick-link-name">YouTube</div>
+            </a>
+            <a href="https://reddit.com" class="quick-link">
+                <div class="quick-link-icon">🔴</div>
+                <div class="quick-link-name">Reddit</div>
+            </a>
+            <a href="https://gmail.com" class="quick-link">
+                <div class="quick-link-icon">📧</div>
+                <div class="quick-link-name">Gmail</div>
+            </a>
+        </div>
+        
+        <div class="shortcuts">
+            <h2>⌨️ Keyboard Shortcuts</h2>
+            <div class="shortcut-grid">
+                <div class="shortcut">
+                    <span class="shortcut-name">New Tab</span>
+                    <span class="shortcut-key">Ctrl+T</span>
+                </div>
+                <div class="shortcut">
+                    <span class="shortcut-name">Close Tab</span>
+                    <span class="shortcut-key">Ctrl+W</span>
+                </div>
+                <div class="shortcut">
+                    <span class="shortcut-name">Focus URL Bar</span>
+                    <span class="shortcut-key">Ctrl+L</span>
+                </div>
+                <div class="shortcut">
+                    <span class="shortcut-name">Reload Page</span>
+                    <span class="shortcut-key">Ctrl+R</span>
+                </div>
+                <div class="shortcut">
+                    <span class="shortcut-name">Go Back</span>
+                    <span class="shortcut-key">Alt+Left</span>
+                </div>
+                <div class="shortcut">
+                    <span class="shortcut-name">Go Forward</span>
+                    <span class="shortcut-key">Alt+Right</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

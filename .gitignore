@@ -1,0 +1,19 @@
+# Build directories
+build/
+*.o
+*.so
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Backups
+*.backup
+*~
+
+# OS
+.DS_Store
+Thumbs.db
