@@ -19,8 +19,34 @@ cd ..
 tar --exclude='.git' \
     --exclude='build' \
     --exclude='*.log' \
-    --exclude='*.md' \
     --exclude='.gitignore' \
+    --exclude='BUTTON_FIX_COMPLETE.md' \
+    --exclude='CRASH_FIX.md' \
+    --exclude='CURRENT_STATUS.md' \
+    --exclude='DOWNLOAD_FIX.md' \
+    --exclude='END_OF_DAY_STATUS.md' \
+    --exclude='FEATURE_*.md' \
+    --exclude='FIXES_APPLIED.md' \
+    --exclude='IMPROVEMENTS_PLAN.md' \
+    --exclude='LATEST_FIXES.md' \
+    --exclude='MINIMAL_FIX_PLAN.md' \
+    --exclude='NEW_DESIGN_PLAN.md' \
+    --exclude='NEXT_IMPROVEMENTS.md' \
+    --exclude='QUICK_WINS.md' \
+    --exclude='README_TABS.md' \
+    --exclude='REAL_REFINEMENT.md' \
+    --exclude='REFINEMENT_*.md' \
+    --exclude='ROADMAP_TO_AMAZING.md' \
+    --exclude='SETTINGS_*.md' \
+    --exclude='SPACE_OPTIMIZATION.md' \
+    --exclude='TAB_*.md' \
+    --exclude='TAB_*.txt' \
+    --exclude='TASK.md' \
+    --exclude='TESTING_GUIDE.md' \
+    --exclude='THIS_SESSION.md' \
+    --exclude='TINY_CLOSE_FIX.md' \
+    --exclude='UI_*.md' \
+    --exclude='UI_*.txt' \
     --transform "s,^braya-browser-cpp,${NAME}-${VERSION}," \
     -czf ~/rpmbuild/SOURCES/${TARBALL} braya-browser-cpp/
 cd braya-browser-cpp

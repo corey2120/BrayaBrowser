@@ -7,6 +7,8 @@
 #include "TabGroup.h"
 #include <iostream>
 #include <cstring>
+#include <sys/stat.h>
+#include <unistd.h>
 
 BrayaWindow::BrayaWindow(GtkApplication* app)
     : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), nextGroupId(1),
@@ -109,6 +111,31 @@ BrayaWindow::~BrayaWindow() {
     tabs.clear();
 }
 
+std::string BrayaWindow::getResourcePath(const std::string& filename) {
+    // Try multiple locations for resources
+    std::vector<std::string> searchPaths = {
+        // Development build location
+        std::string(g_get_current_dir()) + "/resources/" + filename,
+        // Relative to current directory
+        "resources/" + filename,
+        // System installation location
+        "/usr/share/braya-browser/resources/" + filename,
+        // Local installation
+        std::string(getenv("HOME") ? getenv("HOME") : "") + "/.local/share/braya-browser/resources/" + filename
+    };
+    
+    // Check each path
+    for (const auto& path : searchPaths) {
+        struct stat buffer;
+        if (stat(path.c_str(), &buffer) == 0) {
+            return path;
+        }
+    }
+    
+    // Fallback to system path even if file doesn't exist
+    return "/usr/share/braya-browser/resources/" + filename;
+}
+
 void BrayaWindow::setupCSS() {
     // Load theme based on settings
     int theme = settings->getTheme();
@@ -116,16 +143,16 @@ void BrayaWindow::setupCSS() {
     
     switch(theme) {
         case 0: // DARK
-            themePath = "resources/theme-dark.css";
+            themePath = getResourcePath("theme-dark.css");
             break;
         case 1: // LIGHT
-            themePath = "resources/theme-light.css";
+            themePath = getResourcePath("theme-light.css");
             break;
         case 2: // INDUSTRIAL
-            themePath = "resources/theme-industrial.css";
+            themePath = getResourcePath("theme-industrial.css");
             break;
         default:
-            themePath = "resources/theme-dark.css";
+            themePath = getResourcePath("theme-dark.css");
     }
     
     loadThemeCSS(themePath);
@@ -161,16 +188,16 @@ void BrayaWindow::applyTheme(int themeId) {
     
     switch(themeId) {
         case 0: // DARK
-            themePath = "resources/theme-dark.css";
+            themePath = getResourcePath("theme-dark.css");
             break;
         case 1: // LIGHT
-            themePath = "resources/theme-light.css";
+            themePath = getResourcePath("theme-light.css");
             break;
         case 2: // INDUSTRIAL
-            themePath = "resources/theme-industrial.css";
+            themePath = getResourcePath("theme-industrial.css");
             break;
         default:
-            themePath = "resources/theme-dark.css";
+            themePath = getResourcePath("theme-dark.css");
     }
     
     loadThemeCSS(themePath);
@@ -642,26 +669,7 @@ void BrayaWindow::navigateTo(const char* url) {
         
         // Handle about:braya - load home page
         if (finalUrl == "about:braya") {
-            // Get path to executable directory
-            char exePath[1024];
-            ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
-            if (len != -1) {
-                exePath[len] = '\0';
-                std::string exeDir(exePath);
-                size_t lastSlash = exeDir.find_last_of('/');
-                if (lastSlash != std::string::npos) {
-                    exeDir = exeDir.substr(0, lastSlash);
-                    // Go up one level from build/ to project root
-                    lastSlash = exeDir.find_last_of('/');
-                    if (lastSlash != std::string::npos) {
-                        exeDir = exeDir.substr(0, lastSlash);
-                    }
-                }
-                finalUrl = "file://" + exeDir + "/resources/home.html";
-            } else {
-                // Fallback to current dir
-                finalUrl = "file://" + std::string(g_get_current_dir()) + "/resources/home.html";
-            }
+            finalUrl = "file://" + getResourcePath("home.html");
         }
         // Add https:// if needed
         else if (finalUrl.find("://") == std::string::npos) {

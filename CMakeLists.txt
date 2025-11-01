@@ -48,6 +48,13 @@ install(TARGETS braya-browser DESTINATION bin)
 
 # Install resources
 install(FILES resources/style.css DESTINATION share/braya-browser/resources)
-install(FILES resources/style-light.css DESTINATION share/braya-browser/resources)
-install(FILES resources/style-industrial.css DESTINATION share/braya-browser/resources)
+install(FILES resources/theme-dark.css DESTINATION share/braya-browser/resources)
+install(FILES resources/theme-light.css DESTINATION share/braya-browser/resources)
+install(FILES resources/theme-industrial.css DESTINATION share/braya-browser/resources)
 install(FILES resources/home.html DESTINATION share/braya-browser/resources)
+
+# Install icon
+install(FILES resources/icons/braya-browser.svg DESTINATION share/icons/hicolor/scalable/apps)
+
+# Install desktop file
+install(FILES braya-browser.desktop DESTINATION share/applications)

@@ -42,8 +42,7 @@ make install DESTDIR=$RPM_BUILD_ROOT
 # Create directories
 mkdir -p $RPM_BUILD_ROOT%{_bindir}
 mkdir -p $RPM_BUILD_ROOT%{_datadir}/applications
-mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/48x48/apps
-mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/256x256/apps
+mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/scalable/apps
 mkdir -p $RPM_BUILD_ROOT%{_datadir}/%{name}/resources
 
 # Install binary
@@ -69,12 +68,26 @@ if [ -d "../resources" ]; then
     cp -r ../resources/* $RPM_BUILD_ROOT%{_datadir}/%{name}/resources/
 fi
 
+# Install icon
+if [ -f "../resources/icons/braya-browser.svg" ]; then
+    install -m 644 ../resources/icons/braya-browser.svg $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/scalable/apps/braya-browser.svg
+fi
+
 %files
 %license LICENSE
 %doc README.md
 %{_bindir}/braya-browser
 %{_datadir}/applications/%{name}.desktop
+%{_datadir}/icons/hicolor/scalable/apps/braya-browser.svg
 %{_datadir}/%{name}/
+
+%post
+/usr/bin/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+/usr/bin/update-desktop-database &>/dev/null || :
+
+%postun
+/usr/bin/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+/usr/bin/update-desktop-database &>/dev/null || :
 
 %changelog
 * Fri Nov 01 2024 Corey O'Brien <corey@braya.dev> - 1.0.0-1

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="#2563eb" stroke="#1e40af" stroke-width="4"/>
+  
+  <!-- Browser window representation -->
+  <rect x="48" y="68" width="160" height="120" rx="8" fill="white" opacity="0.95"/>
+  
+  <!-- URL bar -->
+  <rect x="58" y="78" width="140" height="20" rx="4" fill="#e5e7eb"/>
+  
+  <!-- Content lines -->
+  <rect x="68" y="108" width="120" height="8" rx="2" fill="#cbd5e1"/>
+  <rect x="68" y="126" width="100" height="8" rx="2" fill="#cbd5e1"/>
+  <rect x="68" y="144" width="110" height="8" rx="2" fill="#cbd5e1"/>
+  
+  <!-- Letter "B" -->
+  <text x="128" y="180" font-family="Arial, sans-serif" font-size="80" font-weight="bold" 
+        fill="#1e40af" text-anchor="middle">B</text>
+</svg>

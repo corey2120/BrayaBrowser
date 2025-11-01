@@ -56,6 +56,7 @@ private:
     void setupUI();
     void setupCSS();
     void loadThemeCSS(const std::string& themePath);
+    std::string getResourcePath(const std::string& filename);
     void createSidebar();
     void createContentArea();
     void createNavbar();
