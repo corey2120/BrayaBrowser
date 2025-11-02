@@ -308,3 +308,37 @@ separator {
     margin: 0 10px;
 }
 
+
+/* Settings Dialog Styles */
+.settings-header {
+    background: linear-gradient(90deg, #0f1419 0%, #1a1f26 100%);
+    border-bottom: 1px solid rgba(0, 217, 255, 0.1);
+}
+
+.settings-sidebar {
+    background: linear-gradient(180deg, #0f1419 0%, #0a0f14 100%);
+    border-right: 1px solid rgba(0, 217, 255, 0.15);
+}
+
+.settings-category-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 2px 0;
+    transition: all 0.2s ease;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.settings-category-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(0, 217, 255, 0.3);
+    transform: translateX(3px);
+}
+
+.settings-category-btn.active {
+    background: rgba(0, 217, 255, 0.15);
+    border-color: rgba(0, 217, 255, 0.5);
+    color: #00d9ff;
+    box-shadow: 0 0 10px rgba(0, 217, 255, 0.3);
+}

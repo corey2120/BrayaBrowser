@@ -27,15 +27,15 @@ void BrayaSettings::show(GtkWindow* parent) {
 
 void BrayaSettings::createDialog(GtkWindow* parent) {
     dialog = gtk_window_new();
-    gtk_window_set_title(GTK_WINDOW(dialog), "🐕 Braya Browser Settings");
-    gtk_window_set_default_size(GTK_WINDOW(dialog), 750, 600);
+    gtk_window_set_title(GTK_WINDOW(dialog), "Braya Settings");
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 900, 650);
     gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
     gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
     
     GtkWidget* mainBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_window_set_child(GTK_WINDOW(dialog), mainBox);
     
-    // Header
+    // Header with search
     GtkWidget* headerBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     gtk_widget_set_margin_start(headerBox, 20);
     gtk_widget_set_margin_end(headerBox, 20);
@@ -44,25 +44,54 @@ void BrayaSettings::createDialog(GtkWindow* parent) {
     gtk_box_append(GTK_BOX(mainBox), headerBox);
     
     GtkWidget* titleLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(titleLabel), "<span size='xx-large' weight='bold'>⚙️ Settings</span>");
+    gtk_label_set_markup(GTK_LABEL(titleLabel), "<span size='x-large' weight='bold'>⚙️ Settings</span>");
     gtk_box_append(GTK_BOX(headerBox), titleLabel);
+    
+    // Search entry
+    GtkWidget* searchEntry = gtk_search_entry_new();
+    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(searchEntry), "Search settings...");
+    gtk_widget_set_size_request(searchEntry, 250, -1);
+    gtk_box_append(GTK_BOX(headerBox), searchEntry);
     
     gtk_box_append(GTK_BOX(mainBox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     
-    // Notebook
-    notebook = gtk_notebook_new();
+    // Content area: Sidebar + Stack
+    GtkWidget* contentBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_vexpand(contentBox, TRUE);
+    gtk_box_append(GTK_BOX(mainBox), contentBox);
+    
+    // Create stack first
+    notebook = gtk_stack_new();
+    gtk_widget_set_hexpand(notebook, TRUE);
     gtk_widget_set_vexpand(notebook, TRUE);
+    gtk_stack_set_transition_type(GTK_STACK(notebook), GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
+    gtk_stack_set_transition_duration(GTK_STACK(notebook), 200);
+    
+    // Add all pages to stack
+    gtk_stack_add_titled(GTK_STACK(notebook), createGeneralTab(), "general", "🏠 General");
+    gtk_stack_add_titled(GTK_STACK(notebook), createAppearanceTab(), "appearance", "🎨 Appearance");
+    gtk_stack_add_titled(GTK_STACK(notebook), createPrivacyTab(), "privacy", "🔒 Privacy");
+    gtk_stack_add_titled(GTK_STACK(notebook), createSecurityTab(), "security", "🛡️ Security");
+    gtk_stack_add_titled(GTK_STACK(notebook), createAdvancedTab(), "advanced", "⚡ Advanced");
+    
+    // Create sidebar that automatically manages the stack
+    GtkWidget* stackSidebar = gtk_stack_sidebar_new();
+    gtk_stack_sidebar_set_stack(GTK_STACK_SIDEBAR(stackSidebar), GTK_STACK(notebook));
+    gtk_widget_add_css_class(stackSidebar, "settings-sidebar");
+    gtk_widget_set_size_request(stackSidebar, 200, -1);
+    gtk_widget_set_margin_start(stackSidebar, 10);
+    gtk_widget_set_margin_end(stackSidebar, 10);
+    gtk_widget_set_margin_top(stackSidebar, 10);
+    gtk_widget_set_margin_bottom(stackSidebar, 10);
+    
+    gtk_box_append(GTK_BOX(contentBox), stackSidebar);
+    gtk_box_append(GTK_BOX(contentBox), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
+    
     gtk_widget_set_margin_start(notebook, 10);
     gtk_widget_set_margin_end(notebook, 10);
     gtk_widget_set_margin_top(notebook, 10);
     gtk_widget_set_margin_bottom(notebook, 10);
-    gtk_box_append(GTK_BOX(mainBox), notebook);
-    
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createGeneralTab(), gtk_label_new("🏠 General"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createAppearanceTab(), gtk_label_new("🎨 Appearance"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createPrivacyTab(), gtk_label_new("🔒 Privacy"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createSecurityTab(), gtk_label_new("🛡️ Security"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createAdvancedTab(), gtk_label_new("⚡ Advanced"));
+    gtk_box_append(GTK_BOX(contentBox), notebook);
     
     gtk_box_append(GTK_BOX(mainBox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     
@@ -74,6 +103,14 @@ void BrayaSettings::createDialog(GtkWindow* parent) {
     gtk_widget_set_margin_bottom(buttonBox, 15);
     gtk_widget_set_halign(buttonBox, GTK_ALIGN_END);
     gtk_box_append(GTK_BOX(mainBox), buttonBox);
+    
+    GtkWidget* resetBtn = gtk_button_new_with_label("Reset to Defaults");
+    gtk_widget_add_css_class(resetBtn, "destructive-action");
+    gtk_box_append(GTK_BOX(buttonBox), resetBtn);
+    
+    GtkWidget* spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand(spacer, TRUE);
+    gtk_box_append(GTK_BOX(buttonBox), spacer);
     
     GtkWidget* applyBtn = gtk_button_new_with_label("✓ Apply");
     gtk_widget_add_css_class(applyBtn, "suggested-action");

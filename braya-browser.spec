@@ -69,8 +69,8 @@ if [ -d "../resources" ]; then
 fi
 
 # Install icon
-if [ -f "../resources/icons/braya-browser.svg" ]; then
-    install -m 644 ../resources/icons/braya-browser.svg $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/scalable/apps/braya-browser.svg
+if [ -f "../resources/icons/braya-browser.png" ]; then
+    install -m 644 ../resources/icons/braya-browser.png $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/scalable/apps/braya-browser.png
 fi
 
 %files
@@ -78,7 +78,7 @@ fi
 %doc README.md
 %{_bindir}/braya-browser
 %{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/hicolor/scalable/apps/braya-browser.svg
+%{_datadir}/icons/hicolor/scalable/apps/braya-browser.png
 %{_datadir}/%{name}/
 
 %post

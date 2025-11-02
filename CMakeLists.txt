@@ -32,6 +32,7 @@ set(SOURCES
     src/BrayaBookmarks.cpp
     src/TabGroup.cpp
     src/BrayaCustomization.cpp
+    src/BrayaPasswordManager.cpp
 )
 
 # Executable
@@ -54,7 +55,7 @@ install(FILES resources/theme-industrial.css DESTINATION share/braya-browser/res
 install(FILES resources/home.html DESTINATION share/braya-browser/resources)
 
 # Install icon
-install(FILES resources/icons/braya-browser.svg DESTINATION share/icons/hicolor/scalable/apps)
+install(FILES resources/icons/braya-browser.png DESTINATION share/icons/hicolor/256x256/apps)
 
 # Install desktop file
 install(FILES braya-browser.desktop DESTINATION share/applications)

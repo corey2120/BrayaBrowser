@@ -1,10 +1,38 @@
+# Build directories
 build/
-*.log
-*.md.backup
-.cache/
-.vscode/
 release-*/
-*.tar.gz
-*.tar.gz.sha256
-*.rpm
 rpm-output/
+
+# Archives
+.archive/
+
+# Compiled files
+*.o
+*.so
+*.a
+
+# Executables
+braya-browser
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# Release artifacts (keep in git)
+# braya-browser-*.tar.gz
+# braya-browser-*.tar.gz.sha256
+
+# IDE files
+.vscode/
+.idea/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db

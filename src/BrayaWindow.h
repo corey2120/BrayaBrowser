@@ -13,6 +13,7 @@ class BrayaHistory;
 class BrayaDownloads;
 class BrayaBookmarks;
 class TabGroup;
+class BrayaPasswordManager;
 
 class BrayaWindow {
 public:
@@ -100,6 +101,10 @@ private:
     std::unique_ptr<BrayaHistory> history;
     std::unique_ptr<BrayaDownloads> downloads;
     std::unique_ptr<BrayaBookmarks> bookmarksManager;
+    std::unique_ptr<BrayaPasswordManager> passwordManager;
+    
+    // Password Manager
+    void showPasswordManager();
     
     // Callbacks
     static void onNewTabClicked(GtkWidget* widget, gpointer data);

@@ -4,6 +4,7 @@
 #include "BrayaHistory.h"
 #include "BrayaDownloads.h"
 #include "BrayaBookmarks.h"
+#include "BrayaPasswordManager.h"
 #include "TabGroup.h"
 #include <iostream>
 #include <cstring>
@@ -16,6 +17,7 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
       history(std::make_unique<BrayaHistory>()),
       downloads(std::make_unique<BrayaDownloads>()),
       bookmarksManager(std::make_unique<BrayaBookmarks>()),
+      passwordManager(std::make_unique<BrayaPasswordManager>()),
       cssProvider(nullptr) {
     
     g_print("Creating Braya window...\n");
@@ -316,6 +318,16 @@ void BrayaWindow::createSidebar() {
     gtk_widget_add_css_class(downloadsBtn, "settings-btn");
     g_signal_connect(downloadsBtn, "clicked", G_CALLBACK(onDownloadsClicked), this);
     gtk_box_append(GTK_BOX(sidebar), downloadsBtn);
+    
+    // Password Manager button
+    GtkWidget* passwordBtn = gtk_button_new_with_label("🔑");
+    gtk_widget_set_tooltip_text(passwordBtn, "Password Manager (Ctrl+K)");
+    gtk_widget_add_css_class(passwordBtn, "settings-btn");
+    g_signal_connect(passwordBtn, "clicked", G_CALLBACK(+[](GtkWidget* w, gpointer data) {
+        BrayaWindow* window = static_cast<BrayaWindow*>(data);
+        window->showPasswordManager();
+    }), this);
+    gtk_box_append(GTK_BOX(sidebar), passwordBtn);
     
     // Settings button at bottom
     GtkWidget* settingsBtn = gtk_button_new_with_label("⚙");
@@ -1120,4 +1132,10 @@ void BrayaWindow::onTabRightClick(GtkGestureClick* gesture, int n_press, double 
     gtk_popover_set_child(GTK_POPOVER(menu), box);
     gtk_widget_set_parent(menu, GTK_WIDGET(gesture));
     gtk_popover_popup(GTK_POPOVER(menu));
+}
+
+void BrayaWindow::showPasswordManager() {
+    if (passwordManager) {
+        passwordManager->showPasswordManager(GTK_WINDOW(window));
+    }
 }
