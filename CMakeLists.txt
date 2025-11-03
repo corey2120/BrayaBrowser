@@ -58,8 +58,14 @@ install(FILES resources/theme-industrial.css DESTINATION share/braya-browser/res
 install(FILES resources/home.html DESTINATION share/braya-browser/resources)
 install(FILES resources/password-detect.js DESTINATION share/braya-browser/resources)                                                                       
                                                                                                                                                    
-# Install icon                                                                                                                                     
-install(FILES resources/icons/braya-browser.png DESTINATION share/icons/hicolor/256x256/apps)                                                      
+# Install icons at multiple sizes
+install(FILES resources/icons/braya-browser-16.png DESTINATION share/icons/hicolor/16x16/apps RENAME braya-browser.png)
+install(FILES resources/icons/braya-browser-32.png DESTINATION share/icons/hicolor/32x32/apps RENAME braya-browser.png)
+install(FILES resources/icons/braya-browser-48.png DESTINATION share/icons/hicolor/48x48/apps RENAME braya-browser.png)
+install(FILES resources/icons/braya-browser-64.png DESTINATION share/icons/hicolor/64x64/apps RENAME braya-browser.png)
+install(FILES resources/icons/braya-browser-128.png DESTINATION share/icons/hicolor/128x128/apps RENAME braya-browser.png)
+install(FILES resources/icons/braya-browser-256.png DESTINATION share/icons/hicolor/256x256/apps RENAME braya-browser.png)
+install(FILES resources/icons/braya-browser-512.png DESTINATION share/icons/hicolor/512x512/apps RENAME braya-browser.png)                                                      
                                                                                                                                                    
 # Install desktop file                                                                                                                             
 install(FILES braya-browser.desktop DESTINATION share/applications)

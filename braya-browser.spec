@@ -1,6 +1,6 @@
 Name:           braya-browser
 Version:        1.0.1
-Release:        0.10.beta10%{?dist}
+Release:        0.12.beta12%{?dist}
 Summary:        A modern, highly customizable web browser built with C++ and WebKit
 License:        MIT
 URL:            https://github.com/corey2120/BrayaBrowser
@@ -122,6 +122,22 @@ fi
 /usr/bin/update-desktop-database &>/dev/null || :
 
 %changelog
+* Sun Nov 03 2024 Corey O'Brien <corey@braya.dev> - 1.0.1-0.12.beta12
+- Beta 12 release - Icon and App ID fixes
+- FIXED: Updated all icon sizes with new UpdatedBraya.png design
+- FIXED: Changed application ID from "com.braya.browser" to "dev.braya.BrayaBrowser"
+- IMPROVED: Application now shows correct icon in dock and menus
+- IMPROVED: Application displays as "Braya Browser" instead of app ID
+- All icon and identification issues resolved
+
+* Sun Nov 03 2024 Corey O'Brien <corey@braya.dev> - 1.0.1-0.11.beta11
+- Beta 11 release - Stability improvements and maintenance
+- IMPROVED: Build system optimizations
+- IMPROVED: Code cleanup and refinements
+- TECHNICAL: Packaging improvements for RPM distribution
+- TECHNICAL: Resource optimization and dependency updates
+- Preparing for future tab UI enhancements
+
 * Sun Nov 03 2024 Corey O'Brien <corey@braya.dev> - 1.0.1-0.10.beta10
 - Beta 10 release - Professional Icon Design
 - NEW: Completely redesigned professional application icon

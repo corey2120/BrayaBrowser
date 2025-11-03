@@ -150,11 +150,35 @@ headerbar.titlebar * {
     outline: none;
 }
 
-/* Bookmarks Bar - Clean Rounded */
+/* Bookmarks Bar - Chrome/Firefox Style */
 .bookmarks-bar {
-    background: linear-gradient(90deg, #0f1419 0%, #1a1f26 100%);
-    border-bottom: 1px solid rgba(0, 217, 255, 0.1);
+    background: #2b2a33;
+    border-bottom: 1px solid #1c1b22;
     padding: 4px 12px;
+}
+
+.visual-bookmarks-bar {
+    background: #2b2a33;
+    padding: 2px 8px;
+}
+
+.bookmarks-bar-scroll {
+    background: #2b2a33;
+}
+
+.bookmark-bar-item {
+    padding: 2px 8px;
+    margin: 0 2px;
+    border-radius: 3px;
+    background: transparent;
+    border: 1px solid transparent;
+    font-size: 12px;
+    min-height: 24px;
+}
+
+.bookmark-bar-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
 }
 
 .bookmark-btn {

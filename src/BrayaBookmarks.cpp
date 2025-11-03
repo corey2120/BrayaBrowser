@@ -41,6 +41,29 @@ void BrayaBookmarks::deleteBookmark(int index) {
     }
 }
 
+void BrayaBookmarks::editBookmarkByUrl(const std::string& oldUrl, const std::string& name, const std::string& url, const std::string& folder) {
+    int index = findBookmarkByUrl(oldUrl);
+    if (index >= 0) {
+        editBookmark(index, name, url, folder);
+    }
+}
+
+void BrayaBookmarks::deleteBookmarkByUrl(const std::string& url) {
+    int index = findBookmarkByUrl(url);
+    if (index >= 0) {
+        deleteBookmark(index);
+    }
+}
+
+int BrayaBookmarks::findBookmarkByUrl(const std::string& url) {
+    for (size_t i = 0; i < bookmarks.size(); i++) {
+        if (bookmarks[i].url == url) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 std::vector<Bookmark> BrayaBookmarks::getBookmarks() {
     return bookmarks;
 }
@@ -486,28 +509,44 @@ void BrayaBookmarks::onCloseClicked(GtkButton* button, gpointer data) {
 // Visual Bookmarks Bar Implementation
 
 GtkWidget* BrayaBookmarks::createBookmarksBar() {
+    std::cout << "BrayaBookmarks::createBookmarksBar() called" << std::endl;
+
     GtkWidget* scrolled = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled), 
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
                                    GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
     gtk_widget_set_vexpand(scrolled, FALSE);
     gtk_widget_add_css_class(scrolled, "bookmarks-bar-scroll");
-    
+
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
     gtk_widget_add_css_class(box, "visual-bookmarks-bar");
     gtk_widget_set_margin_start(box, 10);
     gtk_widget_set_margin_end(box, 10);
     gtk_widget_set_margin_top(box, 5);
     gtk_widget_set_margin_bottom(box, 5);
-    
+
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), box);
-    
-    // Add bookmarks
-    updateBookmarksBar(box);
-    
+
+    // Don't populate yet - will be done by BrayaWindow with callbacks
+    std::cout << "✓ Bookmarks bar widget created (empty)" << std::endl;
+
     return scrolled;
 }
 
-void BrayaBookmarks::updateBookmarksBar(GtkWidget* bookmarksBar) {
+void BrayaBookmarks::updateBookmarksBar(GtkWidget* bookmarksBar,
+                                        gpointer windowPtr,
+                                        GCallback clickCallback,
+                                        GCallback addCallback,
+                                        GCallback rightClickCallback) {
+
+    std::cout << "✓ Updating bookmarks bar with " << bookmarks.size() << " bookmarks" << std::endl;
+    std::cout << "  Widget type: " << G_OBJECT_TYPE_NAME(bookmarksBar) << std::endl;
+
+    // Verify we have a box widget
+    if (!GTK_IS_BOX(bookmarksBar)) {
+        std::cerr << "ERROR: bookmarksBar is not a GtkBox! It's a " << G_OBJECT_TYPE_NAME(bookmarksBar) << std::endl;
+        return;
+    }
+
     // Clear existing bookmarks
     GtkWidget* child = gtk_widget_get_first_child(bookmarksBar);
     while (child) {
@@ -515,16 +554,16 @@ void BrayaBookmarks::updateBookmarksBar(GtkWidget* bookmarksBar) {
         gtk_box_remove(GTK_BOX(bookmarksBar), child);
         child = next;
     }
-    
+
     // Add bookmarks from root folder (empty folder = bookmarks bar)
     for (const auto& bookmark : bookmarks) {
         if (bookmark.folder.empty() || bookmark.folder == "Bookmarks Bar") {
             GtkWidget* btn = gtk_button_new();
             gtk_widget_add_css_class(btn, "bookmark-bar-item");
-            
+
             // Create box for favicon + text
             GtkWidget* btnBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-            
+
             // Try to load favicon
             if (!bookmark.faviconPath.empty()) {
                 GtkWidget* favicon = gtk_image_new_from_file(bookmark.faviconPath.c_str());
@@ -536,31 +575,53 @@ void BrayaBookmarks::updateBookmarksBar(GtkWidget* bookmarksBar) {
                 gtk_image_set_pixel_size(GTK_IMAGE(icon), 16);
                 gtk_box_append(GTK_BOX(btnBox), icon);
             }
-            
+
             // Truncate long titles
             std::string displayName = bookmark.name;
             if (displayName.length() > 20) {
                 displayName = displayName.substr(0, 17) + "...";
             }
-            
+
             GtkWidget* label = gtk_label_new(displayName.c_str());
             gtk_box_append(GTK_BOX(btnBox), label);
-            
+
             gtk_button_set_child(GTK_BUTTON(btn), btnBox);
             gtk_widget_set_tooltip_text(btn, (bookmark.name + "\n" + bookmark.url).c_str());
-            
-            // Store URL in button data
+
+            // Store URL and name in button data
             g_object_set_data_full(G_OBJECT(btn), "url", g_strdup(bookmark.url.c_str()), g_free);
-            
+            g_object_set_data_full(G_OBJECT(btn), "bookmark-name", g_strdup(bookmark.name.c_str()), g_free);
+
+            // Connect click handler if callback provided
+            if (windowPtr && clickCallback) {
+                g_signal_connect(btn, "clicked", clickCallback, windowPtr);
+            }
+
+            // Add right-click gesture for edit/delete if callback provided
+            if (windowPtr && rightClickCallback) {
+                GtkGesture* gesture = gtk_gesture_click_new();
+                gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(gesture), GDK_BUTTON_SECONDARY);
+                g_signal_connect(gesture, "pressed", rightClickCallback, btn);
+                gtk_widget_add_controller(btn, GTK_EVENT_CONTROLLER(gesture));
+            }
+
             gtk_box_append(GTK_BOX(bookmarksBar), btn);
         }
     }
-    
+
     // Add "+" button to add bookmark
     GtkWidget* addBtn = gtk_button_new_from_icon_name("list-add-symbolic");
     gtk_widget_add_css_class(addBtn, "bookmark-add-btn");
     gtk_widget_set_tooltip_text(addBtn, "Add Current Page");
+
+    // Connect add button click handler if callback provided
+    if (windowPtr && addCallback) {
+        g_signal_connect(addBtn, "clicked", addCallback, windowPtr);
+    }
+
     gtk_box_append(GTK_BOX(bookmarksBar), addBtn);
+
+    std::cout << "✓ Bookmarks bar updated" << std::endl;
 }
 
 void BrayaBookmarks::addCurrentPage(const std::string& title, const std::string& url, GdkTexture* favicon) {

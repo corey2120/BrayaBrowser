@@ -140,9 +140,15 @@ private:
     static void onReaderModeClicked(GtkWidget* widget, gpointer data);
     static void onScreenshotClicked(GtkWidget* widget, gpointer data);
     static void onAddBookmarkClicked(GtkWidget* widget, gpointer data);
-    
+
+    // Bookmarks bar callbacks
+    static void onBookmarkBarItemClicked(GtkWidget* widget, gpointer data);
+    static void onBookmarkBarAddClicked(GtkWidget* widget, gpointer data);
+    static void onBookmarkBarItemRightClick(GtkGestureClick* gesture, int n_press, double x, double y, gpointer data);
+
     void navigateTo(const char* url);
     void updateUI();
+    void refreshBookmarksBar();
 };
 
 #endif // BRAYA_WINDOW_H

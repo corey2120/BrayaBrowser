@@ -25,7 +25,10 @@ public:
     
     void addBookmark(const std::string& name, const std::string& url, const std::string& folder = "");
     void editBookmark(int index, const std::string& name, const std::string& url, const std::string& folder);
+    void editBookmarkByUrl(const std::string& oldUrl, const std::string& name, const std::string& url, const std::string& folder);
     void deleteBookmark(int index);
+    void deleteBookmarkByUrl(const std::string& url);
+    int findBookmarkByUrl(const std::string& url);
     std::vector<Bookmark> getBookmarks();
     std::vector<Bookmark> searchBookmarks(const std::string& query);
     
@@ -35,7 +38,11 @@ public:
     
     // Visual bookmarks bar
     GtkWidget* createBookmarksBar();
-    void updateBookmarksBar(GtkWidget* bookmarksBar);
+    void updateBookmarksBar(GtkWidget* bookmarksBar,
+                           gpointer windowPtr = nullptr,
+                           GCallback clickCallback = nullptr,
+                           GCallback addCallback = nullptr,
+                           GCallback rightClickCallback = nullptr);
     void addCurrentPage(const std::string& title, const std::string& url, GdkTexture* favicon);
     
     // Speed dial / New tab page

@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
     g_print("Platform: Native GTK\n");
     g_print("Building the REAL browser...\n\n");
     
-    GtkApplication* app = gtk_application_new("com.braya.browser", G_APPLICATION_FLAGS_NONE);
+    GtkApplication* app = gtk_application_new("dev.braya.BrayaBrowser", G_APPLICATION_FLAGS_NONE);
     g_print("GTK Application created\n");
     
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);

@@ -27,9 +27,13 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     window = gtk_application_window_new(app);
     gtk_window_set_title(GTK_WINDOW(window), "Braya Browser");
     gtk_window_set_default_size(GTK_WINDOW(window), 1400, 900);
-    
+    gtk_window_set_icon_name(GTK_WINDOW(window), "braya-browser");
+
+    // Store BrayaWindow instance pointer on the GTK window for access in callbacks
+    g_object_set_data(G_OBJECT(window), "braya-window-instance", this);
+
     // Don't remove decorations - we'll use headerbar for Firefox-style controls
-    
+
     g_print("Window created\n");
     
     // Connect theme callback
@@ -469,13 +473,55 @@ void BrayaWindow::createNavbar() {
 }
 
 void BrayaWindow::createBookmarksBar() {
+    std::cout << "=== Creating bookmarks bar ===" << std::endl;
+
     // Use the visual bookmarks bar from BrayaBookmarks
     if (bookmarksManager) {
         bookmarksBar = bookmarksManager->createBookmarksBar();
-        
-        // Connect click handlers to bookmarks
-        // (Will be handled in BrayaBookmarks with signals)
+
+        if (!bookmarksBar) {
+            std::cerr << "ERROR: bookmarksBar is NULL!" << std::endl;
+            return;
+        }
+
+        // Make sure it's visible
+        gtk_widget_set_visible(bookmarksBar, TRUE);
+        gtk_widget_set_size_request(bookmarksBar, -1, 38);
+
+        // Wire up click handlers for the bookmarks
+        // gtk_scrolled_window_get_child returns the child (which might be a viewport)
+        GtkWidget* child = gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(bookmarksBar));
+        if (child) {
+            std::cout << "Got scrolled window child, type: " << G_OBJECT_TYPE_NAME(child) << std::endl;
+
+            // In GTK4, if a viewport was automatically created, we need to get its child
+            GtkWidget* boxWidget = child;
+            if (GTK_IS_VIEWPORT(child)) {
+                std::cout << "Child is a viewport, getting its child..." << std::endl;
+                boxWidget = gtk_viewport_get_child(GTK_VIEWPORT(child));
+                if (boxWidget) {
+                    std::cout << "Got viewport child, type: " << G_OBJECT_TYPE_NAME(boxWidget) << std::endl;
+                }
+            }
+
+            if (boxWidget && GTK_IS_BOX(boxWidget)) {
+                bookmarksManager->updateBookmarksBar(
+                    boxWidget,
+                    this,
+                    G_CALLBACK(onBookmarkBarItemClicked),
+                    G_CALLBACK(onBookmarkBarAddClicked),
+                    G_CALLBACK(onBookmarkBarItemRightClick)
+                );
+            } else {
+                std::cerr << "ERROR: Could not find GtkBox widget!" << std::endl;
+            }
+        } else {
+            std::cerr << "ERROR: Could not get scrolled window child!" << std::endl;
+        }
+
+        std::cout << "✓ Bookmarks bar created with click handlers" << std::endl;
     } else {
+        std::cerr << "ERROR: bookmarksManager is NULL!" << std::endl;
         // Fallback to simple bar
         bookmarksBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
         gtk_widget_add_css_class(bookmarksBar, "bookmarks-bar");
@@ -1031,6 +1077,15 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
         } else if (keyval == GDK_KEY_P || keyval == GDK_KEY_p) {
             window->showPasswordManager();
             return TRUE;
+        } else if (keyval == GDK_KEY_B || keyval == GDK_KEY_b) {
+            // Toggle bookmarks bar visibility
+            if (window->bookmarksBar && GTK_IS_WIDGET(window->bookmarksBar)) {
+                gboolean visible = gtk_widget_get_visible(window->bookmarksBar);
+                gtk_widget_set_visible(window->bookmarksBar, !visible);
+                window->showBookmarksBar = !visible;
+                std::cout << "✓ Bookmarks bar " << (!visible ? "shown" : "hidden") << std::endl;
+            }
+            return TRUE;
         }
     }
     
@@ -1299,14 +1354,328 @@ void BrayaWindow::onAddBookmarkClicked(GtkWidget* widget, gpointer data) {
             
             // Update bookmarks bar
             if (window->bookmarksBar) {
-                // Get the scrolled window child (the box)
+                // Get the box widget (might be wrapped in viewport)
                 GtkWidget* child = gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(window->bookmarksBar));
                 if (child) {
-                    window->bookmarksManager->updateBookmarksBar(child);
+                    // Handle viewport wrapping
+                    GtkWidget* boxWidget = child;
+                    if (GTK_IS_VIEWPORT(child)) {
+                        boxWidget = gtk_viewport_get_child(GTK_VIEWPORT(child));
+                    }
+
+                    if (boxWidget && GTK_IS_BOX(boxWidget)) {
+                        window->bookmarksManager->updateBookmarksBar(
+                            boxWidget,
+                            window,
+                            G_CALLBACK(onBookmarkBarItemClicked),
+                            G_CALLBACK(onBookmarkBarAddClicked),
+                            G_CALLBACK(onBookmarkBarItemRightClick)
+                        );
+                    }
                 }
             }
             
             std::cout << "✓ Bookmarked: " << title << std::endl;
         }
+    }
+}
+
+// Bookmarks Bar Callbacks
+
+void BrayaWindow::onBookmarkBarItemClicked(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    const char* url = (const char*)g_object_get_data(G_OBJECT(widget), "url");
+
+    if (url && window) {
+        std::cout << "✓ Navigating to bookmark: " << url << std::endl;
+        window->navigateTo(url);
+    }
+}
+
+void BrayaWindow::onBookmarkBarAddClicked(GtkWidget* widget, gpointer data) {
+    // Reuse the existing add bookmark functionality
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    onAddBookmarkClicked(widget, data);
+}
+
+void BrayaWindow::onBookmarkBarItemRightClick(GtkGestureClick* gesture, int n_press, double x, double y, gpointer data) {
+    GtkWidget* btn = GTK_WIDGET(data);  // The button that was right-clicked
+    const char* url = (const char*)g_object_get_data(G_OBJECT(btn), "url");
+    const char* name = (const char*)g_object_get_data(G_OBJECT(btn), "bookmark-name");
+
+    if (!url || !name) return;
+
+    // Get the window from the button's parent hierarchy
+    GtkWidget* widget = btn;
+    while (widget && !GTK_IS_WINDOW(widget)) {
+        widget = gtk_widget_get_parent(widget);
+    }
+    if (!widget) return;
+
+    // Create popover menu
+    GtkWidget* popover = gtk_popover_new();
+    gtk_widget_set_parent(popover, btn);
+
+    GtkWidget* menuBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_popover_set_child(GTK_POPOVER(popover), menuBox);
+
+    // Store window pointer for callbacks
+    g_object_set_data(G_OBJECT(popover), "window", widget);
+
+    // Edit button
+    GtkWidget* editBtn = gtk_button_new_with_label("✏️ Edit Bookmark");
+    gtk_widget_add_css_class(editBtn, "flat");
+    g_object_set_data_full(G_OBJECT(editBtn), "bookmark-url", g_strdup(url), g_free);
+    g_object_set_data_full(G_OBJECT(editBtn), "bookmark-name", g_strdup(name), g_free);
+    g_signal_connect(editBtn, "clicked", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
+        GtkWidget* popover = GTK_WIDGET(data);
+        gtk_popover_popdown(GTK_POPOVER(popover));
+
+        const char* url = (const char*)g_object_get_data(G_OBJECT(widget), "bookmark-url");
+        const char* name = (const char*)g_object_get_data(G_OBJECT(widget), "bookmark-name");
+        GtkWidget* parentWindow = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "window"));
+
+        // Create edit dialog
+        GtkWidget* dialog = gtk_window_new();
+        gtk_window_set_title(GTK_WINDOW(dialog), "Edit Bookmark");
+        gtk_window_set_default_size(GTK_WINDOW(dialog), 450, 250);
+        gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(parentWindow));
+        gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+
+        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
+        gtk_widget_set_margin_start(box, 20);
+        gtk_widget_set_margin_end(box, 20);
+        gtk_widget_set_margin_top(box, 20);
+        gtk_widget_set_margin_bottom(box, 20);
+        gtk_window_set_child(GTK_WINDOW(dialog), box);
+
+        // Name field
+        GtkWidget* nameLabel = gtk_label_new("Name:");
+        gtk_widget_set_halign(nameLabel, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(box), nameLabel);
+
+        GtkWidget* nameEntry = gtk_entry_new();
+        gtk_editable_set_text(GTK_EDITABLE(nameEntry), name);
+        gtk_box_append(GTK_BOX(box), nameEntry);
+
+        // URL field
+        GtkWidget* urlLabel = gtk_label_new("URL:");
+        gtk_widget_set_halign(urlLabel, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(box), urlLabel);
+
+        GtkWidget* urlEntry = gtk_entry_new();
+        gtk_editable_set_text(GTK_EDITABLE(urlEntry), url);
+        gtk_box_append(GTK_BOX(box), urlEntry);
+
+        // Folder field
+        GtkWidget* folderLabel = gtk_label_new("Folder:");
+        gtk_widget_set_halign(folderLabel, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(box), folderLabel);
+
+        GtkWidget* folderEntry = gtk_entry_new();
+        gtk_entry_set_placeholder_text(GTK_ENTRY(folderEntry), "Bookmarks Bar (leave empty for bar)");
+        gtk_box_append(GTK_BOX(box), folderEntry);
+
+        // Buttons
+        GtkWidget* btnBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+        gtk_box_append(GTK_BOX(box), btnBox);
+
+        GtkWidget* saveBtn = gtk_button_new_with_label("Save");
+        gtk_widget_set_hexpand(saveBtn, TRUE);
+        gtk_widget_add_css_class(saveBtn, "suggested-action");
+        gtk_box_append(GTK_BOX(btnBox), saveBtn);
+
+        GtkWidget* cancelBtn = gtk_button_new_with_label("Cancel");
+        gtk_widget_set_hexpand(cancelBtn, TRUE);
+        gtk_box_append(GTK_BOX(btnBox), cancelBtn);
+
+        // Get the BrayaWindow instance from the original window
+        // We need to traverse back to find it
+        BrayaWindow* brayaWindow = nullptr;
+        g_object_get_data(G_OBJECT(parentWindow), "braya-window-instance");  // Will add this
+
+        // Store data for save callback
+        g_object_set_data_full(G_OBJECT(saveBtn), "old-url", g_strdup(url), g_free);
+        g_object_set_data(G_OBJECT(saveBtn), "name-entry", nameEntry);
+        g_object_set_data(G_OBJECT(saveBtn), "url-entry", urlEntry);
+        g_object_set_data(G_OBJECT(saveBtn), "folder-entry", folderEntry);
+        g_object_set_data(G_OBJECT(saveBtn), "dialog", dialog);
+        g_object_set_data(G_OBJECT(saveBtn), "parent-window", parentWindow);
+
+        g_signal_connect(saveBtn, "clicked", G_CALLBACK(+[](GtkWidget* btn, gpointer data) {
+            const char* oldUrl = (const char*)g_object_get_data(G_OBJECT(btn), "old-url");
+            GtkWidget* nameEntry = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "name-entry"));
+            GtkWidget* urlEntry = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "url-entry"));
+            GtkWidget* folderEntry = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "folder-entry"));
+            GtkWidget* dialog = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
+            GtkWidget* parentWindow = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "parent-window"));
+
+            const char* newName = gtk_editable_get_text(GTK_EDITABLE(nameEntry));
+            const char* newUrl = gtk_editable_get_text(GTK_EDITABLE(urlEntry));
+            const char* newFolder = gtk_editable_get_text(GTK_EDITABLE(folderEntry));
+
+            if (strlen(newFolder) == 0) {
+                newFolder = "Bookmarks Bar";
+            }
+
+            // Get BrayaWindow instance
+            BrayaWindow* window = (BrayaWindow*)g_object_get_data(G_OBJECT(parentWindow), "braya-window-instance");
+
+            if (window && window->bookmarksManager) {
+                // Edit the bookmark
+                window->bookmarksManager->editBookmarkByUrl(oldUrl, newName, newUrl, newFolder);
+
+                // Refresh the bookmarks bar
+                window->refreshBookmarksBar();
+
+                std::cout << "✓ Edited bookmark: " << oldUrl << " → " << newUrl << std::endl;
+            } else {
+                std::cerr << "ERROR: Could not get BrayaWindow instance to edit bookmark!" << std::endl;
+            }
+
+            gtk_window_destroy(GTK_WINDOW(dialog));
+        }), nullptr);
+
+        g_signal_connect(cancelBtn, "clicked", G_CALLBACK(+[](GtkWidget* btn, gpointer data) {
+            GtkWidget* dialog = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
+            gtk_window_destroy(GTK_WINDOW(dialog));
+        }), nullptr);
+        g_object_set_data(G_OBJECT(cancelBtn), "dialog", dialog);
+
+        gtk_window_present(GTK_WINDOW(dialog));
+    }), popover);
+    gtk_box_append(GTK_BOX(menuBox), editBtn);
+
+    // Delete button
+    GtkWidget* deleteBtn = gtk_button_new_with_label("🗑️ Delete Bookmark");
+    gtk_widget_add_css_class(deleteBtn, "flat");
+    gtk_widget_add_css_class(deleteBtn, "destructive-action");
+    g_object_set_data_full(G_OBJECT(deleteBtn), "bookmark-url", g_strdup(url), g_free);
+    g_object_set_data_full(G_OBJECT(deleteBtn), "bookmark-name", g_strdup(name), g_free);
+    g_signal_connect(deleteBtn, "clicked", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
+        GtkWidget* popover = GTK_WIDGET(data);
+        gtk_popover_popdown(GTK_POPOVER(popover));
+
+        const char* url = (const char*)g_object_get_data(G_OBJECT(widget), "bookmark-url");
+        const char* name = (const char*)g_object_get_data(G_OBJECT(widget), "bookmark-name");
+        GtkWidget* parentWindow = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "window"));
+
+        // Create confirmation dialog
+        GtkWidget* dialog = gtk_window_new();
+        gtk_window_set_title(GTK_WINDOW(dialog), "Delete Bookmark");
+        gtk_window_set_default_size(GTK_WINDOW(dialog), 400, 150);
+        gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(parentWindow));
+        gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+
+        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
+        gtk_widget_set_margin_start(box, 20);
+        gtk_widget_set_margin_end(box, 20);
+        gtk_widget_set_margin_top(box, 20);
+        gtk_widget_set_margin_bottom(box, 20);
+        gtk_window_set_child(GTK_WINDOW(dialog), box);
+
+        std::string message = std::string("Are you sure you want to delete:\n\n") + name + "\n" + url;
+        GtkWidget* label = gtk_label_new(message.c_str());
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_box_append(GTK_BOX(box), label);
+
+        GtkWidget* btnBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+        gtk_box_append(GTK_BOX(box), btnBox);
+
+        GtkWidget* deleteConfirmBtn = gtk_button_new_with_label("Delete");
+        gtk_widget_set_hexpand(deleteConfirmBtn, TRUE);
+        gtk_widget_add_css_class(deleteConfirmBtn, "destructive-action");
+        g_object_set_data_full(G_OBJECT(deleteConfirmBtn), "bookmark-url", g_strdup(url), g_free);
+        g_object_set_data(G_OBJECT(deleteConfirmBtn), "dialog", dialog);
+        gtk_box_append(GTK_BOX(btnBox), deleteConfirmBtn);
+
+        GtkWidget* cancelBtn = gtk_button_new_with_label("Cancel");
+        gtk_widget_set_hexpand(cancelBtn, TRUE);
+        g_object_set_data(G_OBJECT(cancelBtn), "dialog", dialog);
+        gtk_box_append(GTK_BOX(btnBox), cancelBtn);
+
+        // Store parent window reference
+        g_object_set_data(G_OBJECT(deleteConfirmBtn), "parent-window", parentWindow);
+
+        g_signal_connect(deleteConfirmBtn, "clicked", G_CALLBACK(+[](GtkWidget* btn, gpointer data) {
+            const char* url = (const char*)g_object_get_data(G_OBJECT(btn), "bookmark-url");
+            GtkWidget* dialog = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
+            GtkWidget* parentWindow = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "parent-window"));
+
+            // Get BrayaWindow instance
+            BrayaWindow* window = (BrayaWindow*)g_object_get_data(G_OBJECT(parentWindow), "braya-window-instance");
+
+            if (window && window->bookmarksManager) {
+                // Delete the bookmark
+                window->bookmarksManager->deleteBookmarkByUrl(url);
+
+                // Refresh the bookmarks bar
+                window->refreshBookmarksBar();
+
+                std::cout << "✓ Deleted bookmark: " << url << std::endl;
+            } else {
+                std::cerr << "ERROR: Could not get BrayaWindow instance to delete bookmark!" << std::endl;
+            }
+
+            gtk_window_destroy(GTK_WINDOW(dialog));
+        }), nullptr);
+
+        g_signal_connect(cancelBtn, "clicked", G_CALLBACK(+[](GtkWidget* btn, gpointer data) {
+            GtkWidget* dialog = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
+            gtk_window_destroy(GTK_WINDOW(dialog));
+        }), nullptr);
+
+        gtk_window_present(GTK_WINDOW(dialog));
+    }), popover);
+    gtk_box_append(GTK_BOX(menuBox), deleteBtn);
+
+    // Copy URL button
+    GtkWidget* copyBtn = gtk_button_new_with_label("📋 Copy URL");
+    gtk_widget_add_css_class(copyBtn, "flat");
+    g_object_set_data_full(G_OBJECT(copyBtn), "bookmark-url", g_strdup(url), g_free);
+    g_signal_connect(copyBtn, "clicked", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
+        GtkWidget* popover = GTK_WIDGET(data);
+        const char* url = (const char*)g_object_get_data(G_OBJECT(widget), "bookmark-url");
+        GdkClipboard* clipboard = gdk_display_get_clipboard(gdk_display_get_default());
+        gdk_clipboard_set_text(clipboard, url);
+        std::cout << "✓ Copied URL to clipboard: " << url << std::endl;
+        gtk_popover_popdown(GTK_POPOVER(popover));
+    }), popover);
+    gtk_box_append(GTK_BOX(menuBox), copyBtn);
+
+    gtk_popover_popup(GTK_POPOVER(popover));
+}
+
+// Helper method to refresh bookmarks bar
+void BrayaWindow::refreshBookmarksBar() {
+    if (!bookmarksBar || !bookmarksManager) {
+        std::cerr << "Cannot refresh bookmarks bar: bar or manager is NULL" << std::endl;
+        return;
+    }
+
+    // Get the box widget (might be wrapped in viewport)
+    GtkWidget* child = gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(bookmarksBar));
+    if (!child) {
+        std::cerr << "Cannot get bookmarks bar child" << std::endl;
+        return;
+    }
+
+    // Handle viewport wrapping
+    GtkWidget* boxWidget = child;
+    if (GTK_IS_VIEWPORT(child)) {
+        boxWidget = gtk_viewport_get_child(GTK_VIEWPORT(child));
+    }
+
+    if (boxWidget && GTK_IS_BOX(boxWidget)) {
+        bookmarksManager->updateBookmarksBar(
+            boxWidget,
+            this,
+            G_CALLBACK(onBookmarkBarItemClicked),
+            G_CALLBACK(onBookmarkBarAddClicked),
+            G_CALLBACK(onBookmarkBarItemRightClick)
+        );
+        std::cout << "✓ Bookmarks bar refreshed" << std::endl;
+    } else {
+        std::cerr << "ERROR: Could not find GtkBox widget in bookmarks bar!" << std::endl;
     }
 }

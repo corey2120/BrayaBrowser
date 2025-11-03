@@ -309,34 +309,50 @@ separator {
 }
 
 
-/* Visual Bookmarks Bar */
+/* Visual Bookmarks Bar - Chrome/Firefox Style */
 .visual-bookmarks-bar {
-    background: rgba(0, 0, 0, 0.02);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    background: linear-gradient(180deg, #f9f9fa 0%, #f0f0f1 100%);
+    border-bottom: 1px solid #d7d7db;
+    padding: 2px 8px;
+    min-height: 32px;
+}
+
+.bookmarks-bar-scroll {
+    background: linear-gradient(180deg, #f9f9fa 0%, #f0f0f1 100%);
 }
 
 .bookmark-bar-item {
-    padding: 5px 12px;
-    border-radius: 6px;
+    padding: 2px 8px;
+    margin: 0 2px;
+    border-radius: 3px;
     background: transparent;
     border: 1px solid transparent;
-    transition: all 0.2s;
+    transition: all 0.15s ease;
+    font-size: 12px;
+    min-height: 24px;
 }
 
 .bookmark-bar-item:hover {
-    background: rgba(0, 0, 0, 0.05);
-    border-color: rgba(0, 0, 0, 0.1);
+    background: rgba(0, 0, 0, 0.08);
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+.bookmark-bar-item:active {
+    background: rgba(0, 0, 0, 0.12);
 }
 
 .bookmark-add-btn {
-    padding: 5px 10px;
-    border-radius: 6px;
-    opacity: 0.6;
-    transition: opacity 0.2s;
+    padding: 2px 8px;
+    margin-left: 4px;
+    border-radius: 3px;
+    opacity: 0.7;
+    transition: all 0.15s ease;
+    min-height: 24px;
 }
 
 .bookmark-add-btn:hover {
     opacity: 1;
+    background: rgba(0, 0, 0, 0.06);
 }
 
 /* Speed Dial */
