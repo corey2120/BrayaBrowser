@@ -1,6 +1,6 @@
 Name:           braya-browser
 Version:        1.0.1
-Release:        0.8.beta8%{?dist}
+Release:        0.10.beta10%{?dist}
 Summary:        A modern, highly customizable web browser built with C++ and WebKit
 License:        MIT
 URL:            https://github.com/corey2120/BrayaBrowser
@@ -46,7 +46,14 @@ make install DESTDIR=$RPM_BUILD_ROOT
 # Create directories
 mkdir -p $RPM_BUILD_ROOT%{_bindir}
 mkdir -p $RPM_BUILD_ROOT%{_datadir}/applications
+mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/16x16/apps
+mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/32x32/apps
+mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/48x48/apps
+mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/64x64/apps
+mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/128x128/apps
 mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/256x256/apps
+mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/512x512/apps
+mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/scalable/apps
 mkdir -p $RPM_BUILD_ROOT%{_datadir}/%{name}/resources
 
 # Install binary
@@ -72,9 +79,30 @@ if [ -d "../resources" ]; then
     cp -r ../resources/* $RPM_BUILD_ROOT%{_datadir}/%{name}/resources/
 fi
 
-# Install icon
-if [ -f "../resources/icons/braya-browser.png" ]; then
-    install -m 644 ../resources/icons/braya-browser.png $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/256x256/apps/braya-browser.png
+# Install icons at multiple sizes
+if [ -f "../resources/icons/braya-browser-16.png" ]; then
+    install -m 644 ../resources/icons/braya-browser-16.png $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/16x16/apps/braya-browser.png
+fi
+if [ -f "../resources/icons/braya-browser-32.png" ]; then
+    install -m 644 ../resources/icons/braya-browser-32.png $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/32x32/apps/braya-browser.png
+fi
+if [ -f "../resources/icons/braya-browser-48.png" ]; then
+    install -m 644 ../resources/icons/braya-browser-48.png $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/48x48/apps/braya-browser.png
+fi
+if [ -f "../resources/icons/braya-browser-64.png" ]; then
+    install -m 644 ../resources/icons/braya-browser-64.png $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/64x64/apps/braya-browser.png
+fi
+if [ -f "../resources/icons/braya-browser-128.png" ]; then
+    install -m 644 ../resources/icons/braya-browser-128.png $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/128x128/apps/braya-browser.png
+fi
+if [ -f "../resources/icons/braya-browser-256.png" ]; then
+    install -m 644 ../resources/icons/braya-browser-256.png $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/256x256/apps/braya-browser.png
+fi
+if [ -f "../resources/icons/braya-browser-512.png" ]; then
+    install -m 644 ../resources/icons/braya-browser-512.png $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/512x512/apps/braya-browser.png
+fi
+if [ -f "../resources/icons/braya-browser.svg" ]; then
+    install -m 644 ../resources/icons/braya-browser.svg $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/scalable/apps/braya-browser.svg
 fi
 
 %files
@@ -82,7 +110,7 @@ fi
 %doc README.md
 %{_bindir}/braya-browser
 %{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/hicolor/256x256/apps/braya-browser.png
+%{_datadir}/icons/hicolor/*/apps/braya-browser.*
 %{_datadir}/%{name}/
 
 %post
@@ -94,6 +122,35 @@ fi
 /usr/bin/update-desktop-database &>/dev/null || :
 
 %changelog
+* Sun Nov 03 2024 Corey O'Brien <corey@braya.dev> - 1.0.1-0.10.beta10
+- Beta 10 release - Professional Icon Design
+- NEW: Completely redesigned professional application icon
+- NEW: Modern gradient design with detailed browser window representation
+- NEW: Icon includes browser tabs, address bar, and traffic lights
+- NEW: Multiple icon sizes for all contexts (16x16 to 512x512)
+- NEW: SVG scalable icon for perfect rendering at any size
+- IMPROVED: Follows freedesktop.org icon standards
+- IMPROVED: Better visibility in application menus and taskbars
+- IMPROVED: Professional appearance matching modern browser standards
+- All icon sizes properly installed to hicolor icon theme
+
+* Sun Nov 03 2024 Corey O'Brien <corey@braya.dev> - 1.0.1-0.9.beta9
+- Beta 9 release - Bookmarks System Complete Overhaul
+- FIXED: Bookmarks bar now fully functional (was completely broken in beta8)
+- FIXED: Click bookmarks to navigate to URLs
+- FIXED: GTK viewport wrapping issues causing casting errors
+- NEW: Right-click context menu on bookmarks (Edit/Delete/Copy)
+- NEW: Edit bookmark dialog with Name/URL/Folder fields
+- NEW: Delete confirmation dialog
+- NEW: Copy URL to clipboard functionality
+- NEW: Ctrl+Shift+B keyboard shortcut to toggle bar visibility
+- NEW: Folder support for organizing bookmarks
+- NEW: Auto-refresh bookmarks bar after any change
+- IMPROVED: Chrome/Firefox-style bookmarks bar design
+- IMPROVED: Compact, horizontal layout like modern browsers
+- IMPROVED: Proper button sizing and hover effects
+- All critical bookmark issues from beta8 resolved
+
 * Sun Nov 03 2024 Corey O'Brien <corey@braya.dev> - 1.0.1-0.8.beta8
 - Beta 8 release - Quick wins + Visual bookmarks overhaul
 - NEW: Reader Mode - distraction-free reading (Alt+Shift+R)
