@@ -1,80 +1,267 @@
-// Password form detection and capture script
+// Enhanced password field detection with Safari-like heuristics
 (function() {
     'use strict';
-    
-    // Find password fields on the page
-    function findPasswordFields() {
-        const passwordFields = document.querySelectorAll('input[type="password"]');
-        return Array.from(passwordFields);
-    }
-    
-    // Find username field near password field
-    function findUsernameField(passwordField) {
-        const form = passwordField.form;
-        if (!form) return null;
-        
-        // Look for email or text input before password
-        const inputs = form.querySelectorAll('input[type="email"], input[type="text"], input[type="tel"]');
-        for (let input of inputs) {
-            if (input.compareDocumentPosition(passwordField) & Node.DOCUMENT_POSITION_FOLLOWING) {
-                return input;
+
+    // Helper: Find username field using multiple heuristics
+    function findUsernameField(context = document) {
+        // Try autocomplete attribute first (Safari standard)
+        let field = context.querySelector('input[autocomplete="username"], input[autocomplete="email"]');
+        if (field) return field;
+
+        // Try common name/id patterns
+        const patterns = [
+            'input[name*="user" i]:not([type="password"])',
+            'input[name*="email" i]',
+            'input[name*="login" i]:not([type="password"])',
+            'input[id*="user" i]:not([type="password"])',
+            'input[id*="email" i]',
+            'input[id*="login" i]:not([type="password"])',
+            'input[type="email"]',
+            'input[type="text"][name*="account" i]'
+        ];
+
+        for (const pattern of patterns) {
+            field = context.querySelector(pattern);
+            if (field && isVisibleField(field)) return field;
+        }
+
+        // Fallback: first visible text/email field before password
+        const passwordField = context.querySelector('input[type="password"]');
+        if (passwordField) {
+            const allInputs = Array.from(context.querySelectorAll('input[type="text"], input[type="email"], input:not([type])'));
+            for (const input of allInputs) {
+                if (isVisibleField(input) && input.compareDocumentPosition(passwordField) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                    return input;
+                }
             }
         }
+
         return null;
     }
-    
-    // Capture form submission
-    function setupFormCapture() {
-        const passwordFields = findPasswordFields();
-        
-        passwordFields.forEach(passwordField => {
-            const form = passwordField.form;
-            if (!form) return;
-            
-            form.addEventListener('submit', function(e) {
-                const usernameField = findUsernameField(passwordField);
-                const username = usernameField ? usernameField.value : '';
-                const password = passwordField.value;
-                
-                if (username && password) {
-                    // Send to browser
-                    window.webkit.messageHandlers.passwordCapture.postMessage({
-                        url: window.location.href,
-                        username: username,
-                        password: password
-                    });
-                }
-            });
-        });
+
+    // Helper: Find password field
+    function findPasswordField(context = document) {
+        // Try autocomplete attribute
+        let field = context.querySelector('input[autocomplete="current-password"], input[autocomplete="new-password"]');
+        if (field) return field;
+
+        // Try type=password
+        const passwordFields = Array.from(context.querySelectorAll('input[type="password"]'));
+        return passwordFields.find(f => isVisibleField(f)) || passwordFields[0] || null;
     }
-    
-    // Auto-fill saved passwords
+
+    // Helper: Check if field is visible
+    function isVisibleField(element) {
+        if (!element) return false;
+        const style = window.getComputedStyle(element);
+        return style.display !== 'none' && 
+               style.visibility !== 'hidden' && 
+               style.opacity !== '0' &&
+               element.offsetWidth > 0 && 
+               element.offsetHeight > 0;
+    }
+
+    // Helper: Get form fields
+    function getLoginFields(form = null) {
+        const context = form || document;
+        return {
+            username: findUsernameField(context),
+            password: findPasswordField(context)
+        };
+    }
+
+    // Track form submissions (including AJAX)
+    const submittedForms = new WeakSet();
+
+    // Handle traditional form submission
+    function setupFormCapture() {
+        document.addEventListener('submit', (e) => {
+            const form = e.target;
+            if (submittedForms.has(form)) return;
+            submittedForms.add(form);
+
+            const fields = getLoginFields(form);
+            if (fields.username && fields.password && fields.username.value && fields.password.value) {
+                // Delay capture to allow form submission to complete
+                setTimeout(() => {
+                    capturePassword(fields.username.value, fields.password.value);
+                }, 100);
+            }
+        }, true);
+    }
+
+    // Handle AJAX/fetch submissions (SPA support)
+    function setupAjaxCapture() {
+        // Monitor password field changes
+        let lastUsername = '';
+        let lastPassword = '';
+
+        document.addEventListener('input', (e) => {
+            if (e.target.type === 'password' || e.target.autocomplete === 'current-password') {
+                const fields = getLoginFields();
+                if (fields.username && fields.password) {
+                    lastUsername = fields.username.value;
+                    lastPassword = fields.password.value;
+                }
+            }
+        }, true);
+
+        // Intercept fetch/XHR
+        const originalFetch = window.fetch;
+        window.fetch = function(...args) {
+            return originalFetch.apply(this, args).then(response => {
+                if (response.ok && lastPassword) {
+                    setTimeout(() => {
+                        capturePassword(lastUsername, lastPassword);
+                        lastUsername = '';
+                        lastPassword = '';
+                    }, 500);
+                }
+                return response;
+            });
+        };
+    }
+
+    // Capture password credentials
+    function capturePassword(username, password) {
+        if (!username || !password) return;
+        
+        try {
+            window.webkit.messageHandlers.passwordCapture.postMessage({
+                url: window.location.href,
+                username: username.trim(),
+                password: password
+            });
+        } catch (e) {
+            console.error('Failed to capture password:', e);
+        }
+    }
+
+    // Autofill function - improved with field detection
     window.fillPassword = function(username, password) {
-        const passwordFields = findPasswordFields();
-        if (passwordFields.length === 0) return;
+        const fields = getLoginFields();
         
-        const passwordField = passwordFields[0];
-        const usernameField = findUsernameField(passwordField);
-        
-        if (usernameField) {
-            usernameField.value = username;
-            usernameField.dispatchEvent(new Event('input', { bubbles: true }));
-            usernameField.dispatchEvent(new Event('change', { bubbles: true }));
+        if (fields.username && fields.password) {
+            // Set values
+            fields.username.value = username;
+            fields.password.value = password;
+
+            // Trigger input events for frameworks like React/Vue
+            ['input', 'change'].forEach(eventType => {
+                fields.username.dispatchEvent(new Event(eventType, { bubbles: true }));
+                fields.password.dispatchEvent(new Event(eventType, { bubbles: true }));
+            });
+
+            console.log('✓ Password autofilled');
+            return true;
         }
         
-        passwordField.value = password;
-        passwordField.dispatchEvent(new Event('input', { bubbles: true }));
-        passwordField.dispatchEvent(new Event('change', { bubbles: true }));
+        console.warn('Could not find login fields for autofill');
+        return false;
     };
-    
-    // Initialize on page load
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', setupFormCapture);
-    } else {
-        setupFormCapture();
+
+    // Request autofill suggestions on field focus (Safari-like)
+    window.requestAutofillSuggestions = function() {
+        const fields = getLoginFields();
+        if (fields.username || fields.password) {
+            try {
+                window.webkit.messageHandlers.autofillRequest.postMessage({
+                    url: window.location.href
+                });
+            } catch (e) {
+                // Handler not registered yet
+            }
+        }
+    };
+
+    // Add visual key icon to fields with saved passwords
+    window.addPasswordIndicators = function() {
+        const fields = getLoginFields();
+        
+        // Add key icon indicator to fields
+        if (fields.username || fields.password) {
+            const style = document.createElement('style');
+            style.id = 'braya-password-style';
+            style.textContent = `
+                input[data-braya-has-password] {
+                    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="%23666"><path d="M8 1a3 3 0 0 0-3 3v2H3.5A1.5 1.5 0 0 0 2 7.5v6A1.5 1.5 0 0 0 3.5 15h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 6H11V4a3 3 0 0 0-3-3zm1 6h1.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 2 13.5v-6a.5.5 0 0 1 .5-.5H9z"/></svg>');
+                    background-repeat: no-repeat;
+                    background-position: right 8px center;
+                    background-size: 16px 16px;
+                    padding-right: 30px !important;
+                    cursor: pointer;
+                }
+                input[data-braya-has-password]:hover {
+                    background-color: #f0f8ff;
+                }
+            `;
+            
+            // Remove old style if exists
+            const oldStyle = document.getElementById('braya-password-style');
+            if (oldStyle) oldStyle.remove();
+            
+            document.head.appendChild(style);
+            
+            // Mark fields
+            if (fields.username) fields.username.setAttribute('data-braya-has-password', 'true');
+            if (fields.password) fields.password.setAttribute('data-braya-has-password', 'true');
+            
+            console.log('✓ Added password indicators');
+        }
+    };
+
+    // Check if passwords available for this URL
+    window.checkPasswordsAvailable = function() {
+        try {
+            window.webkit.messageHandlers.checkPasswords.postMessage({
+                url: window.location.href
+            });
+        } catch (e) {
+            // Handler not registered
+        }
+    };
+
+    // Add focus listeners for autofill triggers
+    function setupFocusListeners() {
+        document.addEventListener('focusin', (e) => {
+            const target = e.target;
+            if (target.tagName === 'INPUT') {
+                const fields = getLoginFields();
+                if (target === fields.username || target === fields.password) {
+                    requestAutofillSuggestions();
+                }
+            }
+        }, true);
     }
-    
-    // Also handle dynamically added forms
-    const observer = new MutationObserver(setupFormCapture);
-    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    function init() {
+        setupFormCapture();
+        setupAjaxCapture();
+        setupFocusListeners();
+        
+        // Check if passwords are available and add visual indicators
+        checkPasswordsAvailable();
+        
+        console.log('✓ Braya password manager initialized');
+    }
+
+    // Re-initialize on dynamic content changes (SPAs)
+    const observer = new MutationObserver(() => {
+        const fields = getLoginFields();
+        if (fields.password) {
+            setupFocusListeners();
+        }
+    });
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
 })();

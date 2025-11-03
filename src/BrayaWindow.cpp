@@ -497,7 +497,7 @@ void BrayaWindow::createStatusBar() {
 
 // Tab management
 void BrayaWindow::createTab(const char* url) {
-    auto tab = std::make_unique<BrayaTab>(nextTabId++, url);
+    auto tab = std::make_unique<BrayaTab>(nextTabId++, url, passwordManager.get());
     
     // Connect download handler via decide-policy and context
     WebKitWebContext* context = webkit_web_view_get_context(tab->getWebView());

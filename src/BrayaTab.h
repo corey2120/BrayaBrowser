@@ -5,9 +5,11 @@
 #include <webkit/webkit.h>
 #include <string>
 
+class BrayaPasswordManager;
+
 class BrayaTab {
 public:
-    BrayaTab(int id, const char* url = "about:braya");
+    BrayaTab(int id, const char* url = "about:braya", BrayaPasswordManager* passwordMgr = nullptr);
     ~BrayaTab();
     
     int getId() const { return id; }
@@ -28,16 +30,27 @@ private:
     std::string url;
     bool isLoading;
     GdkTexture* favicon;
-    
+    BrayaPasswordManager* passwordManager;
+
     WebKitWebView* webView;
     GtkWidget* scrolledWindow;
     GtkWidget* tabButton;
-    
+    WebKitUserContentManager* userContentManager;
+
+    void setupPasswordManager();
+    void injectPasswordScript();
+    void autoFillPasswords();
+    void showAutofillSuggestions();
+    std::string getResourcePath(const std::string& filename);
+
     static void onLoadChanged(WebKitWebView* webView, WebKitLoadEvent loadEvent, gpointer userData);
     static void onTitleChanged(WebKitWebView* webView, GParamSpec* pspec, gpointer userData);
     static void onUriChanged(WebKitWebView* webView, GParamSpec* pspec, gpointer userData);
     static void onFaviconChanged(WebKitWebView* webView, GParamSpec* pspec, gpointer userData);
     static void onWebProcessCrashed(WebKitWebView* webView, gpointer userData);
+    static void onPasswordCaptured(WebKitUserContentManager* manager, JSCValue* value, gpointer userData);
+    static void onAutofillRequest(WebKitUserContentManager* manager, JSCValue* value, gpointer userData);
+    static void onCheckPasswords(WebKitUserContentManager* manager, JSCValue* value, gpointer userData);
 };
 
 #endif // BRAYA_TAB_H
