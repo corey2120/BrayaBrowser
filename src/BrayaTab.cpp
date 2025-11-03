@@ -9,7 +9,8 @@
 
 BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr)
     : id(id), url(url ? url : "about:braya"), title("New Tab"), isLoading(false),
-      favicon(nullptr), tabButton(nullptr), passwordManager(passwordMgr), userContentManager(nullptr) {
+      favicon(nullptr), tabButton(nullptr), passwordManager(passwordMgr), userContentManager(nullptr),
+      pinned(false), muted(false), readerMode(false) {
 
     // Create WebView first
     webView = WEBKIT_WEB_VIEW(webkit_web_view_new());
@@ -603,4 +604,131 @@ void BrayaTab::onCheckPasswords(WebKitUserContentManager* manager, JSCValue* val
         
         std::cout << "✓ Added password indicators for " << passwords.size() << " account(s)" << std::endl;
     }
+}
+
+// Quick Wins Feature Implementations
+
+void BrayaTab::setPinned(bool pin) {
+    pinned = pin;
+    updateButton();
+    std::cout << (pin ? "📌" : "📍") << " Tab " << id << " " << (pin ? "pinned" : "unpinned") << std::endl;
+}
+
+void BrayaTab::setMuted(bool mute) {
+    muted = mute;
+    webkit_web_view_set_is_muted(webView, mute);
+    updateButton();
+    std::cout << (mute ? "🔇" : "🔊") << " Tab " << id << " " << (mute ? "muted" : "unmuted") << std::endl;
+}
+
+void BrayaTab::toggleReaderMode() {
+    if (!webView) return;
+    
+    if (readerMode) {
+        // Exit reader mode - reload original page
+        readerMode = false;
+        webkit_web_view_load_uri(webView, url.c_str());
+        std::cout << "📖 → 🌐 Exited reader mode" << std::endl;
+    } else {
+        // Enter reader mode - extract main content
+        readerMode = true;
+        
+        // JavaScript to extract readable content
+        const char* script = R"(
+            (function() {
+                // Find main content
+                const article = document.querySelector('article') || 
+                               document.querySelector('[role="main"]') ||
+                               document.querySelector('main') ||
+                               document.body;
+                
+                // Get title
+                const title = document.title;
+                
+                // Get readable text
+                const clonedArticle = article.cloneNode(true);
+                
+                // Remove scripts, ads, nav, etc
+                const removeSelectors = ['script', 'style', 'nav', 'header', 'footer', 
+                                        'aside', '.ad', '.ads', '.advertisement', 
+                                        '.social-share', '.comments'];
+                removeSelectors.forEach(sel => {
+                    clonedArticle.querySelectorAll(sel).forEach(el => el.remove());
+                });
+                
+                // Create clean HTML
+                const readerHTML = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>${title}</title>
+                        <style>
+                            body {
+                                max-width: 700px;
+                                margin: 40px auto;
+                                padding: 20px;
+                                font-family: Georgia, serif;
+                                font-size: 18px;
+                                line-height: 1.6;
+                                color: #333;
+                                background: #fafafa;
+                            }
+                            h1, h2, h3 { font-family: system-ui, sans-serif; }
+                            h1 { font-size: 32px; margin-bottom: 10px; }
+                            img { max-width: 100%; height: auto; }
+                            pre { background: #f0f0f0; padding: 15px; border-radius: 5px; overflow-x: auto; }
+                            code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }
+                            blockquote { border-left: 4px solid #ddd; margin: 0; padding-left: 20px; color: #666; }
+                            a { color: #0066cc; text-decoration: none; }
+                            a:hover { text-decoration: underline; }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>${title}</h1>
+                        ${clonedArticle.innerHTML}
+                    </body>
+                    </html>
+                `;
+                
+                return readerHTML;
+            })();
+        )";
+        
+        // Execute JavaScript and load result
+        webkit_web_view_evaluate_javascript(
+            webView,
+            script,
+            -1,
+            nullptr,
+            nullptr,
+            nullptr,
+            [](GObject* object, GAsyncResult* result, gpointer user_data) {
+                BrayaTab* tab = static_cast<BrayaTab*>(user_data);
+                GError* error = nullptr;
+                
+                JSCValue* value = webkit_web_view_evaluate_javascript_finish(
+                    WEBKIT_WEB_VIEW(object), result, &error);
+                
+                if (error) {
+                    std::cerr << "✗ Reader mode error: " << error->message << std::endl;
+                    g_error_free(error);
+                    tab->readerMode = false;
+                    return;
+                }
+                
+                if (value && jsc_value_is_string(value)) {
+                    char* html = jsc_value_to_string(value);
+                    webkit_web_view_load_html(WEBKIT_WEB_VIEW(object), html, tab->url.c_str());
+                    g_free(html);
+                    std::cout << "📖 Entered reader mode" << std::endl;
+                }
+                
+                if (value) g_object_unref(value);
+            },
+            this
+        );
+    }
+    
+    updateButton();
 }

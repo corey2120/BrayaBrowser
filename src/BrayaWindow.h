@@ -40,6 +40,12 @@ public:
     void findNext();
     void findPrevious();
     
+    // Quick wins features
+    void toggleReaderMode();
+    void takeScreenshot();
+    void toggleTabPin(int tabId);
+    void toggleTabMute(int tabId);
+    
     // Bookmarks
     void showBookmarksManager();
     
@@ -129,6 +135,11 @@ private:
     static void onWindowCloseClicked(GtkWidget* widget, gpointer data);
     static gboolean onKeyPress(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data);
     static void onTabRightClick(GtkGestureClick* gesture, int n_press, double x, double y, gpointer data);
+    
+    // Quick wins callbacks
+    static void onReaderModeClicked(GtkWidget* widget, gpointer data);
+    static void onScreenshotClicked(GtkWidget* widget, gpointer data);
+    static void onAddBookmarkClicked(GtkWidget* widget, gpointer data);
     
     void navigateTo(const char* url);
     void updateUI();

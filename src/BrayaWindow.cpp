@@ -8,6 +8,7 @@
 #include "TabGroup.h"
 #include <iostream>
 #include <cstring>
+#include <ctime>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -422,9 +423,24 @@ void BrayaWindow::createNavbar() {
     
     // Bookmark button
     GtkWidget* bookmarkBtn = gtk_button_new_from_icon_name("starred-symbolic");
-    gtk_widget_set_tooltip_text(bookmarkBtn, "Bookmark This Page");
+    gtk_widget_set_tooltip_text(bookmarkBtn, "Bookmark This Page (Ctrl+D)");
     gtk_widget_add_css_class(bookmarkBtn, "action-btn");
+    g_signal_connect(bookmarkBtn, "clicked", G_CALLBACK(onAddBookmarkClicked), this);
     gtk_box_append(GTK_BOX(rightBox), bookmarkBtn);
+    
+    // Reader mode button
+    GtkWidget* readerBtn = gtk_button_new_from_icon_name("document-properties-symbolic");
+    gtk_widget_set_tooltip_text(readerBtn, "Reader Mode (Ctrl+R+M)");
+    gtk_widget_add_css_class(readerBtn, "action-btn");
+    g_signal_connect(readerBtn, "clicked", G_CALLBACK(onReaderModeClicked), this);
+    gtk_box_append(GTK_BOX(rightBox), readerBtn);
+    
+    // Screenshot button
+    GtkWidget* screenshotBtn = gtk_button_new_from_icon_name("camera-photo-symbolic");
+    gtk_widget_set_tooltip_text(screenshotBtn, "Take Screenshot (Ctrl+Shift+S)");
+    gtk_widget_add_css_class(screenshotBtn, "action-btn");
+    g_signal_connect(screenshotBtn, "clicked", G_CALLBACK(onScreenshotClicked), this);
+    gtk_box_append(GTK_BOX(rightBox), screenshotBtn);
     
     // Split view button
     GtkWidget* splitViewBtn = gtk_button_new_from_icon_name("view-dual-symbolic");
@@ -453,27 +469,16 @@ void BrayaWindow::createNavbar() {
 }
 
 void BrayaWindow::createBookmarksBar() {
-    bookmarksBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-    gtk_widget_add_css_class(bookmarksBar, "bookmarks-bar");
-    gtk_widget_set_margin_start(bookmarksBar, 15);
-    gtk_widget_set_margin_end(bookmarksBar, 15);
-    gtk_widget_set_margin_top(bookmarksBar, 5);
-    gtk_widget_set_margin_bottom(bookmarksBar, 5);
-    
-    // Sample bookmarks
-    const char* bookmarks[][2] = {
-        {"🦆 DuckDuckGo", "https://duckduckgo.com"},
-        {"📰 Hacker News", "https://news.ycombinator.com"},
-        {"🐙 GitHub", "https://github.com"},
-        {"📺 YouTube", "https://youtube.com"}
-    };
-    
-    for (int i = 0; i < 4; i++) {
-        GtkWidget* btn = gtk_button_new_with_label(bookmarks[i][0]);
-        gtk_widget_add_css_class(btn, "bookmark-btn");
-        g_object_set_data_full(G_OBJECT(btn), "url", g_strdup(bookmarks[i][1]), g_free);
-        g_signal_connect(btn, "clicked", G_CALLBACK(onBookmarkClicked), this);
-        gtk_box_append(GTK_BOX(bookmarksBar), btn);
+    // Use the visual bookmarks bar from BrayaBookmarks
+    if (bookmarksManager) {
+        bookmarksBar = bookmarksManager->createBookmarksBar();
+        
+        // Connect click handlers to bookmarks
+        // (Will be handled in BrayaBookmarks with signals)
+    } else {
+        // Fallback to simple bar
+        bookmarksBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+        gtk_widget_add_css_class(bookmarksBar, "bookmarks-bar");
     }
 }
 
@@ -1012,6 +1017,28 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
         } else if (keyval == GDK_KEY_b) {
             window->showBookmarksManager();
             return TRUE;
+        } else if (keyval == GDK_KEY_d || keyval == GDK_KEY_D) {
+            window->onAddBookmarkClicked(NULL, window);
+            return TRUE;
+        }
+    }
+    
+    // Ctrl+Shift shortcuts
+    if ((state & GDK_CONTROL_MASK) && (state & GDK_SHIFT_MASK)) {
+        if (keyval == GDK_KEY_S || keyval == GDK_KEY_s) {
+            window->takeScreenshot();
+            return TRUE;
+        } else if (keyval == GDK_KEY_P || keyval == GDK_KEY_p) {
+            window->showPasswordManager();
+            return TRUE;
+        }
+    }
+    
+    // Alt+Shift shortcuts  
+    if ((state & GDK_ALT_MASK) && (state & GDK_SHIFT_MASK)) {
+        if (keyval == GDK_KEY_R || keyval == GDK_KEY_r) {
+            window->toggleReaderMode();
+            return TRUE;
         }
     }
     
@@ -1137,5 +1164,149 @@ void BrayaWindow::onTabRightClick(GtkGestureClick* gesture, int n_press, double 
 void BrayaWindow::showPasswordManager() {
     if (passwordManager) {
         passwordManager->showPasswordManager(GTK_WINDOW(window));
+    }
+}
+
+// Quick Wins Feature Implementations
+
+void BrayaWindow::toggleReaderMode() {
+    if (activeTabIndex >= 0 && activeTabIndex < tabs.size()) {
+        tabs[activeTabIndex]->toggleReaderMode();
+    }
+}
+
+void BrayaWindow::takeScreenshot() {
+    if (activeTabIndex < 0 || activeTabIndex >= tabs.size()) return;
+    
+    auto* webView = tabs[activeTabIndex]->getWebView();
+    if (!webView) return;
+    
+    std::cout << "📸 Taking screenshot..." << std::endl;
+    
+    webkit_web_view_get_snapshot(
+        webView,
+        WEBKIT_SNAPSHOT_REGION_VISIBLE,
+        WEBKIT_SNAPSHOT_OPTIONS_NONE,
+        nullptr,
+        [](GObject* object, GAsyncResult* result, gpointer user_data) {
+            GError* error = nullptr;
+            GdkTexture* texture = webkit_web_view_get_snapshot_finish(
+                WEBKIT_WEB_VIEW(object), result, &error);
+            
+            if (error) {
+                std::cerr << "✗ Screenshot error: " << error->message << std::endl;
+                g_error_free(error);
+                return;
+            }
+            
+            if (texture) {
+                // Generate filename
+                time_t now = time(nullptr);
+                char filename[256];
+                strftime(filename, sizeof(filename), "braya-screenshot-%Y%m%d-%H%M%S.png", localtime(&now));
+                
+                // Save to Pictures directory
+                const char* homeDir = g_get_home_dir();
+                std::string filepath = std::string(homeDir) + "/Pictures/" + filename;
+                
+                // Save texture to file
+                gboolean saved = gdk_texture_save_to_png(texture, filepath.c_str());
+                
+                if (saved) {
+                    std::cout << "✓ Screenshot saved: " << filepath << std::endl;
+                    
+                    // Show notification with simple dialog
+                    GtkWidget* parentWindow = GTK_WIDGET(user_data);
+                    GtkWidget* dialog = gtk_window_new();
+                    gtk_window_set_title(GTK_WINDOW(dialog), "Screenshot Saved");
+                    gtk_window_set_default_size(GTK_WINDOW(dialog), 400, 120);
+                    gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(parentWindow));
+                    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+                    
+                    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+                    gtk_widget_set_margin_start(box, 20);
+                    gtk_widget_set_margin_end(box, 20);
+                    gtk_widget_set_margin_top(box, 20);
+                    gtk_widget_set_margin_bottom(box, 20);
+                    gtk_window_set_child(GTK_WINDOW(dialog), box);
+                    
+                    GtkWidget* label = gtk_label_new(("Screenshot saved to:\n" + filepath).c_str());
+                    gtk_box_append(GTK_BOX(box), label);
+                    
+                    GtkWidget* okBtn = gtk_button_new_with_label("OK");
+                    gtk_widget_add_css_class(okBtn, "suggested-action");
+                    g_signal_connect_swapped(okBtn, "clicked", G_CALLBACK(gtk_window_close), dialog);
+                    gtk_box_append(GTK_BOX(box), okBtn);
+                    
+                    gtk_window_present(GTK_WINDOW(dialog));
+                } else {
+                    std::cerr << "✗ Failed to save screenshot" << std::endl;
+                }
+                
+                g_object_unref(texture);
+            }
+        },
+        window
+    );
+}
+
+void BrayaWindow::toggleTabPin(int tabId) {
+    for (auto& tab : tabs) {
+        if (tab->getId() == tabId) {
+            tab->setPinned(!tab->isPinned());
+            updateUI();
+            break;
+        }
+    }
+}
+
+void BrayaWindow::toggleTabMute(int tabId) {
+    for (auto& tab : tabs) {
+        if (tab->getId() == tabId) {
+            tab->setMuted(!tab->isMuted());
+            break;
+        }
+    }
+}
+
+// Quick Wins Callbacks
+
+void BrayaWindow::onReaderModeClicked(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    window->toggleReaderMode();
+}
+
+void BrayaWindow::onScreenshotClicked(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    window->takeScreenshot();
+}
+
+void BrayaWindow::onAddBookmarkClicked(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    
+    if (window->activeTabIndex >= 0 && window->activeTabIndex < window->tabs.size()) {
+        BrayaTab* tab = window->tabs[window->activeTabIndex].get();
+        std::string title = tab->getTitle();
+        std::string url = tab->getUrl();
+        
+        // Get favicon
+        WebKitWebView* webView = tab->getWebView();
+        GdkTexture* favicon = webkit_web_view_get_favicon(webView);
+        
+        // Add to bookmarks
+        if (window->bookmarksManager) {
+            window->bookmarksManager->addCurrentPage(title, url, favicon);
+            
+            // Update bookmarks bar
+            if (window->bookmarksBar) {
+                // Get the scrolled window child (the box)
+                GtkWidget* child = gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(window->bookmarksBar));
+                if (child) {
+                    window->bookmarksManager->updateBookmarksBar(child);
+                }
+            }
+            
+            std::cout << "✓ Bookmarked: " << title << std::endl;
+        }
     }
 }

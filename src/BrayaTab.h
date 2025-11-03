@@ -21,6 +21,14 @@ public:
     std::string getTitle() const { return title; }
     std::string getUrl() const { return url; }
     
+    // Quick wins features
+    bool isPinned() const { return pinned; }
+    void setPinned(bool pin);
+    bool isMuted() const { return muted; }
+    void setMuted(bool mute);
+    bool isInReaderMode() const { return readerMode; }
+    void toggleReaderMode();
+    
     void setTabButton(GtkWidget* button) { tabButton = button; }
     void updateButton();
     
@@ -31,6 +39,12 @@ private:
     bool isLoading;
     GdkTexture* favicon;
     BrayaPasswordManager* passwordManager;
+    
+    // Quick wins state
+    bool pinned;
+    bool muted;
+    bool readerMode;
+    std::string originalContent; // For reader mode toggle
 
     WebKitWebView* webView;
     GtkWidget* scrolledWindow;

@@ -10,11 +10,12 @@ struct Bookmark {
     std::string name;
     std::string url;
     std::string folder;
+    std::string faviconPath;  // Path to cached favicon
     time_t timestamp;
     
-    Bookmark() : name(""), url(""), folder(""), timestamp(0) {}
-    Bookmark(const std::string& n, const std::string& u, const std::string& f)
-        : name(n), url(u), folder(f), timestamp(std::time(nullptr)) {}
+    Bookmark() : name(""), url(""), folder(""), faviconPath(""), timestamp(0) {}
+    Bookmark(const std::string& n, const std::string& u, const std::string& f = "", const std::string& fav = "")
+        : name(n), url(u), folder(f), faviconPath(fav), timestamp(std::time(nullptr)) {}
 };
 
 class BrayaBookmarks {
@@ -31,6 +32,15 @@ public:
     void showBookmarksManager(GtkWindow* parent);
     void saveToFile();
     void loadFromFile();
+    
+    // Visual bookmarks bar
+    GtkWidget* createBookmarksBar();
+    void updateBookmarksBar(GtkWidget* bookmarksBar);
+    void addCurrentPage(const std::string& title, const std::string& url, GdkTexture* favicon);
+    
+    // Speed dial / New tab page
+    GtkWidget* createSpeedDial();
+    std::vector<Bookmark> getFavoriteBookmarks(int count = 12);
     
 private:
     std::vector<Bookmark> bookmarks;

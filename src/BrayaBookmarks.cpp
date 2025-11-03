@@ -2,6 +2,8 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 BrayaBookmarks::BrayaBookmarks() : managerDialog(nullptr), bookmarksList(nullptr), searchEntry(nullptr) {
     bookmarksFilePath = getBookmarksFilePath();
@@ -479,4 +481,224 @@ void BrayaBookmarks::onCloseClicked(GtkButton* button, gpointer data) {
         bookmarks->bookmarksList = nullptr;
         bookmarks->searchEntry = nullptr;
     }
+}
+
+// Visual Bookmarks Bar Implementation
+
+GtkWidget* BrayaBookmarks::createBookmarksBar() {
+    GtkWidget* scrolled = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled), 
+                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
+    gtk_widget_set_vexpand(scrolled, FALSE);
+    gtk_widget_add_css_class(scrolled, "bookmarks-bar-scroll");
+    
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_widget_add_css_class(box, "visual-bookmarks-bar");
+    gtk_widget_set_margin_start(box, 10);
+    gtk_widget_set_margin_end(box, 10);
+    gtk_widget_set_margin_top(box, 5);
+    gtk_widget_set_margin_bottom(box, 5);
+    
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), box);
+    
+    // Add bookmarks
+    updateBookmarksBar(box);
+    
+    return scrolled;
+}
+
+void BrayaBookmarks::updateBookmarksBar(GtkWidget* bookmarksBar) {
+    // Clear existing bookmarks
+    GtkWidget* child = gtk_widget_get_first_child(bookmarksBar);
+    while (child) {
+        GtkWidget* next = gtk_widget_get_next_sibling(child);
+        gtk_box_remove(GTK_BOX(bookmarksBar), child);
+        child = next;
+    }
+    
+    // Add bookmarks from root folder (empty folder = bookmarks bar)
+    for (const auto& bookmark : bookmarks) {
+        if (bookmark.folder.empty() || bookmark.folder == "Bookmarks Bar") {
+            GtkWidget* btn = gtk_button_new();
+            gtk_widget_add_css_class(btn, "bookmark-bar-item");
+            
+            // Create box for favicon + text
+            GtkWidget* btnBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+            
+            // Try to load favicon
+            if (!bookmark.faviconPath.empty()) {
+                GtkWidget* favicon = gtk_image_new_from_file(bookmark.faviconPath.c_str());
+                gtk_image_set_pixel_size(GTK_IMAGE(favicon), 16);
+                gtk_box_append(GTK_BOX(btnBox), favicon);
+            } else {
+                // Default icon
+                GtkWidget* icon = gtk_image_new_from_icon_name("text-html-symbolic");
+                gtk_image_set_pixel_size(GTK_IMAGE(icon), 16);
+                gtk_box_append(GTK_BOX(btnBox), icon);
+            }
+            
+            // Truncate long titles
+            std::string displayName = bookmark.name;
+            if (displayName.length() > 20) {
+                displayName = displayName.substr(0, 17) + "...";
+            }
+            
+            GtkWidget* label = gtk_label_new(displayName.c_str());
+            gtk_box_append(GTK_BOX(btnBox), label);
+            
+            gtk_button_set_child(GTK_BUTTON(btn), btnBox);
+            gtk_widget_set_tooltip_text(btn, (bookmark.name + "\n" + bookmark.url).c_str());
+            
+            // Store URL in button data
+            g_object_set_data_full(G_OBJECT(btn), "url", g_strdup(bookmark.url.c_str()), g_free);
+            
+            gtk_box_append(GTK_BOX(bookmarksBar), btn);
+        }
+    }
+    
+    // Add "+" button to add bookmark
+    GtkWidget* addBtn = gtk_button_new_from_icon_name("list-add-symbolic");
+    gtk_widget_add_css_class(addBtn, "bookmark-add-btn");
+    gtk_widget_set_tooltip_text(addBtn, "Add Current Page");
+    gtk_box_append(GTK_BOX(bookmarksBar), addBtn);
+}
+
+void BrayaBookmarks::addCurrentPage(const std::string& title, const std::string& url, GdkTexture* favicon) {
+    // Save favicon if provided
+    std::string faviconPath;
+    if (favicon) {
+        // Create favicons directory
+        const char* homeDir = g_get_home_dir();
+        std::string faviconsDir = std::string(homeDir) + "/.config/braya-browser/favicons";
+        mkdir(faviconsDir.c_str(), 0755);
+        
+        // Generate filename from URL
+        std::string filename = url;
+        // Replace invalid chars
+        for (char& c : filename) {
+            if (c == '/' || c == ':' || c == '?' || c == '&') c = '_';
+        }
+        filename = filename.substr(0, 50) + ".png";
+        
+        faviconPath = faviconsDir + "/" + filename;
+        gdk_texture_save_to_png(favicon, faviconPath.c_str());
+    }
+    
+    addBookmark(title, url, "Bookmarks Bar");
+    
+    // Update the last bookmark with favicon path
+    if (!faviconPath.empty() && !bookmarks.empty()) {
+        bookmarks.back().faviconPath = faviconPath;
+        saveToFile();
+    }
+    
+    std::cout << "✓ Added bookmark: " << title << std::endl;
+}
+
+// Speed Dial Implementation
+
+GtkWidget* BrayaBookmarks::createSpeedDial() {
+    GtkWidget* scrolled = gtk_scrolled_window_new();
+    gtk_widget_set_vexpand(scrolled, TRUE);
+    gtk_widget_set_hexpand(scrolled, TRUE);
+    
+    // Grid layout for speed dial
+    GtkWidget* grid = gtk_grid_new();
+    gtk_widget_add_css_class(grid, "speed-dial");
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 20);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 20);
+    gtk_widget_set_halign(grid, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(grid, GTK_ALIGN_START);
+    gtk_widget_set_margin_start(grid, 40);
+    gtk_widget_set_margin_end(grid, 40);
+    gtk_widget_set_margin_top(grid, 40);
+    gtk_widget_set_margin_bottom(grid, 40);
+    
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), grid);
+    
+    // Get favorite bookmarks
+    auto favorites = getFavoriteBookmarks(12);
+    
+    // Create speed dial tiles (4 columns)
+    int row = 0, col = 0;
+    for (const auto& bookmark : favorites) {
+        GtkWidget* tile = gtk_button_new();
+        gtk_widget_add_css_class(tile, "speed-dial-tile");
+        gtk_widget_set_size_request(tile, 180, 180);
+        
+        GtkWidget* tileBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+        gtk_widget_set_halign(tileBox, GTK_ALIGN_CENTER);
+        gtk_widget_set_valign(tileBox, GTK_ALIGN_CENTER);
+        
+        // Large favicon or icon
+        if (!bookmark.faviconPath.empty()) {
+            GtkWidget* favicon = gtk_image_new_from_file(bookmark.faviconPath.c_str());
+            gtk_image_set_pixel_size(GTK_IMAGE(favicon), 64);
+            gtk_box_append(GTK_BOX(tileBox), favicon);
+        } else {
+            GtkWidget* icon = gtk_image_new_from_icon_name("text-html-symbolic");
+            gtk_image_set_pixel_size(GTK_IMAGE(icon), 64);
+            gtk_box_append(GTK_BOX(tileBox), icon);
+        }
+        
+        // Title
+        std::string displayName = bookmark.name;
+        if (displayName.length() > 25) {
+            displayName = displayName.substr(0, 22) + "...";
+        }
+        GtkWidget* label = gtk_label_new(displayName.c_str());
+        gtk_widget_add_css_class(label, "speed-dial-label");
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_CENTER);
+        gtk_label_set_max_width_chars(GTK_LABEL(label), 20);
+        gtk_box_append(GTK_BOX(tileBox), label);
+        
+        gtk_button_set_child(GTK_BUTTON(tile), tileBox);
+        gtk_widget_set_tooltip_text(tile, bookmark.url.c_str());
+        
+        // Store URL
+        g_object_set_data_full(G_OBJECT(tile), "url", g_strdup(bookmark.url.c_str()), g_free);
+        
+        gtk_grid_attach(GTK_GRID(grid), tile, col, row, 1, 1);
+        
+        col++;
+        if (col >= 4) {
+            col = 0;
+            row++;
+        }
+    }
+    
+    // Add "Add bookmark" tile
+    GtkWidget* addTile = gtk_button_new();
+    gtk_widget_add_css_class(addTile, "speed-dial-tile");
+    gtk_widget_add_css_class(addTile, "speed-dial-add");
+    gtk_widget_set_size_request(addTile, 180, 180);
+    
+    GtkWidget* addBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_halign(addBox, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(addBox, GTK_ALIGN_CENTER);
+    
+    GtkWidget* addIcon = gtk_image_new_from_icon_name("list-add-symbolic");
+    gtk_image_set_pixel_size(GTK_IMAGE(addIcon), 64);
+    gtk_box_append(GTK_BOX(addBox), addIcon);
+    
+    GtkWidget* addLabel = gtk_label_new("Add Bookmark");
+    gtk_box_append(GTK_BOX(addBox), addLabel);
+    
+    gtk_button_set_child(GTK_BUTTON(addTile), addBox);
+    gtk_grid_attach(GTK_GRID(grid), addTile, col, row, 1, 1);
+    
+    return scrolled;
+}
+
+std::vector<Bookmark> BrayaBookmarks::getFavoriteBookmarks(int count) {
+    std::vector<Bookmark> favorites;
+    
+    // Get most recent bookmarks (or could be most visited)
+    for (const auto& bookmark : bookmarks) {
+        if (favorites.size() >= count) break;
+        favorites.push_back(bookmark);
+    }
+    
+    return favorites;
 }

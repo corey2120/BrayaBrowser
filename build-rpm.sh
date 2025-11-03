@@ -1,5 +1,5 @@
 #!/bin/bash
-# Braya Browser v1.0.1-beta7 RPM Build Script
+# Braya Browser v1.0.1-beta8 RPM Build Script
 
 set -e
 
@@ -7,7 +7,7 @@ VERSION="1.0.1"
 NAME="braya-browser"
 TARBALL="${NAME}-${VERSION}.tar.gz"
 
-echo "🚀 Building Braya Browser v${VERSION}-beta7 RPM Package..."
+echo "🚀 Building Braya Browser v${VERSION}-beta8 RPM Package..."
 
 # Setup RPM build environment
 echo "📁 Setting up RPM build directories..."

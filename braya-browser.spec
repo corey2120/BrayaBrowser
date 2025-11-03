@@ -1,6 +1,6 @@
 Name:           braya-browser
 Version:        1.0.1
-Release:        0.7.beta7%{?dist}
+Release:        0.8.beta8%{?dist}
 Summary:        A modern, highly customizable web browser built with C++ and WebKit
 License:        MIT
 URL:            https://github.com/corey2120/BrayaBrowser
@@ -94,6 +94,29 @@ fi
 /usr/bin/update-desktop-database &>/dev/null || :
 
 %changelog
+* Sun Nov 03 2024 Corey O'Brien <corey@braya.dev> - 1.0.1-0.8.beta8
+- Beta 8 release - Quick wins + Visual bookmarks overhaul
+- NEW: Reader Mode - distraction-free reading (Alt+Shift+R)
+- NEW: Screenshot tool - save visible page to PNG (Ctrl+Shift+S)
+- NEW: Visual bookmarks bar with real favicons
+- NEW: Speed dial / new tab page with thumbnail grid
+- NEW: Favicon caching system
+- NEW: Tab pinning backend (ready for UI)
+- NEW: Tab muting backend (ready for UI)
+- IMPROVED: Bookmark current page with Ctrl+D
+- IMPROVED: Bookmarks bar shows site favicons
+- IMPROVED: Beautiful modern bookmark styling
+- UI: Reader mode extracts main content intelligently
+- UI: Screenshot confirmation dialog with file path
+- UI: Speed dial grid layout (4 columns, 12 sites)
+- UI: Hover animations on bookmarks and speed dial
+- UI: Add bookmark button in bookmarks bar
+- TECHNICAL: Favicon storage in ~/.config/braya-browser/favicons
+- TECHNICAL: GdkTexture snapshot API for screenshots
+- TECHNICAL: JavaScript content extraction for reader mode
+- Added 4 new keyboard shortcuts
+- Added modern CSS with shadows and transitions
+
 * Sun Nov 03 2024 Corey O'Brien <corey@braya.dev> - 1.0.1-0.7.beta7
 - Beta 7 release - Chrome import fix + Safari UX improvements
 - FIXED: Chrome password import now works correctly (4-column CSV format)
