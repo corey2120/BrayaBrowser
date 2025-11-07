@@ -75,10 +75,16 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
         updateExtensionButtons();
     });
 
-    // Copy web extension .so to extension directory
-    // In development, copy from build directory
+    // Load web extension .so
+    // Try installed location first, fall back to build directory for development
+    std::string installedExtPath = "/usr/lib/braya-browser/web-extensions/libbraya-web-extension.so";
     std::string buildExtPath = "./build/libbraya-web-extension.so";
-    extensionManager->loadNativeExtension(buildExtPath);
+    
+    if (g_file_test(installedExtPath.c_str(), G_FILE_TEST_EXISTS)) {
+        extensionManager->loadNativeExtension(installedExtPath);
+    } else {
+        extensionManager->loadNativeExtension(buildExtPath);
+    }
 
     // Auto-load saved extensions from config
     std::cout << "\n📦 Loading saved extensions..." << std::endl;
