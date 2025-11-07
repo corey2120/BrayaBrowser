@@ -112,6 +112,7 @@ fi
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/*/apps/braya-browser.*
 %{_datadir}/%{name}/
+/usr/lib/%{name}/web-extensions/libbraya-web-extension.so
 
 %post
 /usr/bin/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
