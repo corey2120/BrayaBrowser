@@ -56,8 +56,7 @@ mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/512x512/apps
 mkdir -p $RPM_BUILD_ROOT%{_datadir}/icons/hicolor/scalable/apps
 mkdir -p $RPM_BUILD_ROOT%{_datadir}/%{name}/resources
 
-# Install binary
-install -m 755 braya-browser $RPM_BUILD_ROOT%{_bindir}/braya-browser
+# Binary is already installed by 'make install' above
 
 # Install desktop file
 cat > $RPM_BUILD_ROOT%{_datadir}/applications/%{name}.desktop << EOF

@@ -19,6 +19,7 @@ cd ..
 tar --exclude='.git' \
     --exclude='build' \
     --exclude='rpm-output' \
+    --exclude='release-1.0.0' \
     --exclude='*.log' \
     --exclude='.gitignore' \
     --exclude='BUTTON_FIX_COMPLETE.md' \
