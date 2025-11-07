@@ -1,27 +1,40 @@
 #include "BrayaSettings.h"
 #include "BrayaCustomization.h"
+#include "extensions/BrayaExtensionManager.h"
+#include "extensions/BrayaWebExtension.h"
+#include "extensions/ExtensionInstaller.h"
 #include <iostream>
 #include <fstream>
+#include <sstream>
+#include <json-glib/json-glib.h>
 
 BrayaSettings::BrayaSettings()
     : theme(DARK), fontSize(13), fontFamily("Sans"), showBookmarks(true),
       blockTrackers(true), blockAds(false), httpsOnly(false),
       enableJavaScript(true), enableWebGL(true), enablePlugins(false),
       downloadPath(""), homePage("about:braya"), searchEngine("DuckDuckGo"),
-      dialog(nullptr), notebook(nullptr) {
+      dialog(nullptr), notebook(nullptr), m_extensionManager(nullptr), extensionsList(nullptr) {
     
     downloadPath = std::string(g_get_user_special_dir(G_USER_DIRECTORY_DOWNLOAD));
     loadSettings();
 }
 
 void BrayaSettings::show(GtkWindow* parent) {
-    if (dialog) {
+    if (dialog && GTK_IS_WINDOW(dialog)) {
         gtk_window_present(GTK_WINDOW(dialog));
         return;
     }
-    
+
     createDialog(parent);
     updateUIFromSettings();
+
+    // Connect close signal to reset dialog pointer
+    g_signal_connect(dialog, "close-request", G_CALLBACK(+[](GtkWindow* window, gpointer data) -> gboolean {
+        BrayaSettings* settings = static_cast<BrayaSettings*>(data);
+        settings->dialog = nullptr;
+        return FALSE; // Allow the window to close
+    }), this);
+
     gtk_window_present(GTK_WINDOW(dialog));
 }
 
@@ -72,6 +85,7 @@ void BrayaSettings::createDialog(GtkWindow* parent) {
     gtk_stack_add_titled(GTK_STACK(notebook), createAppearanceTab(), "appearance", "🎨 Appearance");
     gtk_stack_add_titled(GTK_STACK(notebook), createPrivacyTab(), "privacy", "🔒 Privacy");
     gtk_stack_add_titled(GTK_STACK(notebook), createSecurityTab(), "security", "🛡️ Security");
+    gtk_stack_add_titled(GTK_STACK(notebook), createExtensionsTab(), "extensions", "🔌 Extensions");
     gtk_stack_add_titled(GTK_STACK(notebook), createAdvancedTab(), "advanced", "⚡ Advanced");
     
     // Create sidebar that automatically manages the stack
@@ -666,4 +680,538 @@ void BrayaSettings::onCloseClicked(GtkButton* button, gpointer data) {
 
 void BrayaSettings::onColorButtonClicked(GtkButton* button, gpointer data) {
     std::cout << "Color picker coming soon!" << std::endl;
+}
+
+// =============================================================================
+// EXTENSIONS TAB
+// =============================================================================
+
+// Helper struct for extension row data
+struct ExtensionRowData {
+    BrayaSettings* settings;
+    std::string extensionId;
+};
+
+GtkWidget* BrayaSettings::createExtensionsTab() {
+    GtkWidget* scrolled = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
+                                   GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+
+    GtkWidget* mainBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), mainBox);
+
+    // Header area
+    GtkWidget* headerBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_margin_start(headerBox, 20);
+    gtk_widget_set_margin_end(headerBox, 20);
+    gtk_widget_set_margin_top(headerBox, 20);
+    gtk_widget_set_margin_bottom(headerBox, 10);
+    gtk_box_append(GTK_BOX(mainBox), headerBox);
+
+    GtkWidget* headerLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(headerLabel), "<span size='large' weight='bold'>Browser Extensions</span>");
+    gtk_widget_set_halign(headerLabel, GTK_ALIGN_START);
+    gtk_widget_set_hexpand(headerLabel, TRUE);
+    gtk_box_append(GTK_BOX(headerBox), headerLabel);
+
+    // Install buttons box
+    GtkWidget* installBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(headerBox), installBox);
+
+    // Quick install box - URL entry right in the header
+    GtkWidget* quickInstallBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_hexpand(quickInstallBox, TRUE);
+    gtk_box_append(GTK_BOX(installBox), quickInstallBox);
+
+    GtkWidget* urlEntry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(urlEntry), "Paste extension URL from addons.mozilla.org or chrome.google.com/webstore");
+    gtk_widget_set_hexpand(urlEntry, TRUE);
+    gtk_box_append(GTK_BOX(quickInstallBox), urlEntry);
+
+    GtkWidget* installButton = gtk_button_new_with_label("Install");
+    gtk_widget_add_css_class(installButton, "suggested-action");
+    gtk_widget_set_tooltip_text(installButton, "Install extension from URL");
+    g_object_set_data(G_OBJECT(installButton), "settings", this);
+    g_object_set_data(G_OBJECT(installButton), "url-entry", urlEntry);
+    g_signal_connect(installButton, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
+        BrayaSettings* s = static_cast<BrayaSettings*>(g_object_get_data(G_OBJECT(btn), "settings"));
+        GtkEntry* entry = GTK_ENTRY(g_object_get_data(G_OBJECT(btn), "url-entry"));
+
+        const char* url = gtk_editable_get_text(GTK_EDITABLE(entry));
+        if (!url || strlen(url) == 0) {
+            std::cerr << "No URL provided" << std::endl;
+            return;
+        }
+
+        std::cout << "📦 Installing extension from URL: " << url << std::endl;
+
+        // Disable button during installation
+        gtk_widget_set_sensitive(GTK_WIDGET(btn), FALSE);
+        gtk_widget_set_sensitive(GTK_WIDGET(entry), FALSE);
+        gtk_button_set_label(btn, "Installing...");
+
+        // Create installer and install
+        ExtensionInstaller installer(s->m_extensionManager);
+        installer.installFromUrl(url, [s, btn, entry](bool success, const std::string& message) {
+            // Re-enable controls
+            gtk_button_set_label(GTK_BUTTON(btn), "Install");
+            gtk_widget_set_sensitive(GTK_WIDGET(btn), TRUE);
+            gtk_widget_set_sensitive(GTK_WIDGET(entry), TRUE);
+
+            if (success) {
+                std::cout << "✓ " << message << std::endl;
+
+                // Clear the URL entry
+                gtk_editable_set_text(GTK_EDITABLE(entry), "");
+
+                // Save extension states
+                s->saveExtensionStates();
+
+                // Refresh the extensions list
+                s->refreshExtensionsList();
+
+                // Notify window to update extension buttons
+                if (s->m_extensionChangeCallback) {
+                    s->m_extensionChangeCallback();
+                }
+
+                // Show success notification
+                std::cout << "✅ Extension installed and ready to use!" << std::endl;
+            } else {
+                std::cerr << "✗ " << message << std::endl;
+            }
+        });
+    }), nullptr);
+    gtk_box_append(GTK_BOX(quickInstallBox), installButton);
+
+    // Add note about where to find extensions
+    GtkWidget* noteLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(noteLabel),
+        "<span size='small' style='italic'>💡 Just browse https://addons.mozilla.org in the browser and click install!</span>");
+    gtk_label_set_wrap(GTK_LABEL(noteLabel), TRUE);
+    gtk_widget_add_css_class(noteLabel, "dim-label");
+    gtk_widget_set_halign(noteLabel, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(installBox), noteLabel);
+
+    // Load Unpacked button (for developers)
+    GtkWidget* loadButton = gtk_button_new_with_label("Load Unpacked");
+    gtk_widget_set_tooltip_text(loadButton, "Load an unpacked extension folder (for development)");
+    g_signal_connect(loadButton, "clicked", G_CALLBACK(onLoadUnpackedClicked), this);
+    gtk_box_append(GTK_BOX(installBox), loadButton);
+
+    // Subtitle
+    GtkWidget* subtitle = gtk_label_new("Install, enable, and manage your browser extensions");
+    gtk_widget_set_halign(subtitle, GTK_ALIGN_START);
+    gtk_widget_add_css_class(subtitle, "dim-label");
+    gtk_widget_set_margin_start(subtitle, 20);
+    gtk_widget_set_margin_end(subtitle, 20);
+    gtk_widget_set_margin_bottom(subtitle, 15);
+    gtk_box_append(GTK_BOX(mainBox), subtitle);
+
+    // Extensions list
+    extensionsList = gtk_list_box_new();
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(extensionsList), GTK_SELECTION_NONE);
+    gtk_widget_add_css_class(extensionsList, "boxed-list");
+    gtk_widget_set_margin_start(extensionsList, 20);
+    gtk_widget_set_margin_end(extensionsList, 20);
+    gtk_widget_set_margin_bottom(extensionsList, 20);
+    gtk_box_append(GTK_BOX(mainBox), extensionsList);
+
+    // Populate list
+    refreshExtensionsList();
+
+    return scrolled;
+}
+
+void BrayaSettings::refreshExtensionsList() {
+    if (!extensionsList || !m_extensionManager) {
+        return;
+    }
+
+    // Clear existing rows
+    GtkWidget* child = gtk_widget_get_first_child(extensionsList);
+    while (child) {
+        GtkWidget* next = gtk_widget_get_next_sibling(child);
+        gtk_list_box_remove(GTK_LIST_BOX(extensionsList), child);
+        child = next;
+    }
+
+    // Get all extensions
+    auto extensions = m_extensionManager->getWebExtensions();
+
+    if (extensions.empty()) {
+        // Show empty state
+        GtkWidget* emptyBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+        gtk_widget_set_margin_top(emptyBox, 60);
+        gtk_widget_set_margin_bottom(emptyBox, 60);
+
+        GtkWidget* emptyLabel = gtk_label_new("No Extensions Installed");
+        gtk_widget_add_css_class(emptyLabel, "title-2");
+        gtk_box_append(GTK_BOX(emptyBox), emptyLabel);
+
+        GtkWidget* emptyDesc = gtk_label_new("Click '🔍 Browse Extensions' to get started");
+        gtk_widget_add_css_class(emptyDesc, "dim-label");
+        gtk_box_append(GTK_BOX(emptyBox), emptyDesc);
+
+        gtk_list_box_append(GTK_LIST_BOX(extensionsList), emptyBox);
+    } else {
+        // Add row for each extension
+        for (auto* extension : extensions) {
+            GtkWidget* row = createExtensionRow(extension);
+            gtk_list_box_append(GTK_LIST_BOX(extensionsList), row);
+        }
+    }
+
+    std::cout << "✓ Extension list refreshed (" << extensions.size() << " extensions)" << std::endl;
+}
+
+GtkWidget* BrayaSettings::createExtensionRow(void* ext) {
+    auto* extension = static_cast<BrayaWebExtension*>(ext);
+
+    // Main row box
+    GtkWidget* rowBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_margin_start(rowBox, 12);
+    gtk_widget_set_margin_end(rowBox, 12);
+    gtk_widget_set_margin_top(rowBox, 12);
+    gtk_widget_set_margin_bottom(rowBox, 12);
+
+    // Left side: Extension info
+    GtkWidget* infoBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_hexpand(infoBox, TRUE);
+    gtk_box_append(GTK_BOX(rowBox), infoBox);
+
+    // Extension name
+    GtkWidget* nameLabel = gtk_label_new(extension->getName().c_str());
+    gtk_widget_set_halign(nameLabel, GTK_ALIGN_START);
+    gtk_widget_add_css_class(nameLabel, "title-4");
+    gtk_box_append(GTK_BOX(infoBox), nameLabel);
+
+    // Extension version and ID
+    std::string details = "Version " + extension->getVersion() + " • ID: " + extension->getId();
+    GtkWidget* detailsLabel = gtk_label_new(details.c_str());
+    gtk_widget_set_halign(detailsLabel, GTK_ALIGN_START);
+    gtk_widget_add_css_class(detailsLabel, "dim-label");
+    gtk_label_set_selectable(GTK_LABEL(detailsLabel), TRUE);
+    gtk_box_append(GTK_BOX(infoBox), detailsLabel);
+
+    // Extension path
+    GtkWidget* pathLabel = gtk_label_new(extension->getPath().c_str());
+    gtk_widget_set_halign(pathLabel, GTK_ALIGN_START);
+    gtk_widget_add_css_class(pathLabel, "caption");
+    gtk_widget_add_css_class(pathLabel, "dim-label");
+    gtk_label_set_selectable(GTK_LABEL(pathLabel), TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(pathLabel), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_label_set_max_width_chars(GTK_LABEL(pathLabel), 50);
+    gtk_box_append(GTK_BOX(infoBox), pathLabel);
+
+    // Permissions info
+    auto permissions = extension->getPermissions();
+    if (!permissions.empty()) {
+        std::string permText = "Permissions: ";
+        for (size_t i = 0; i < permissions.size() && i < 3; i++) {
+            if (i > 0) permText += ", ";
+            permText += permissions[i];
+        }
+        if (permissions.size() > 3) {
+            permText += " (+" + std::to_string(permissions.size() - 3) + " more)";
+        }
+
+        GtkWidget* permLabel = gtk_label_new(permText.c_str());
+        gtk_widget_set_halign(permLabel, GTK_ALIGN_START);
+        gtk_widget_add_css_class(permLabel, "caption");
+        gtk_box_append(GTK_BOX(infoBox), permLabel);
+    }
+
+    // Right side: Controls
+    GtkWidget* controlsBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_valign(controlsBox, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(rowBox), controlsBox);
+
+    // Enable/Disable toggle
+    GtkWidget* toggle = gtk_switch_new();
+    gtk_switch_set_active(GTK_SWITCH(toggle), extension->isEnabled());
+    gtk_widget_set_valign(toggle, GTK_ALIGN_CENTER);
+
+    auto* toggleData = new ExtensionRowData{this, extension->getId()};
+    g_signal_connect_data(toggle, "state-set", G_CALLBACK(onToggleExtension),
+                         toggleData, [](gpointer data, GClosure*) { delete (ExtensionRowData*)data; }, (GConnectFlags)0);
+
+    gtk_box_append(GTK_BOX(controlsBox), toggle);
+
+    // Remove button
+    GtkWidget* removeButton = gtk_button_new_with_label("Remove");
+    gtk_widget_add_css_class(removeButton, "destructive-action");
+    gtk_widget_set_valign(removeButton, GTK_ALIGN_CENTER);
+
+    auto* removeData = new ExtensionRowData{this, extension->getId()};
+    g_signal_connect_data(removeButton, "clicked", G_CALLBACK(onRemoveExtension),
+                         removeData, [](gpointer data, GClosure*) { delete (ExtensionRowData*)data; }, (GConnectFlags)0);
+
+    gtk_box_append(GTK_BOX(controlsBox), removeButton);
+
+    return rowBox;
+}
+
+void BrayaSettings::onLoadUnpackedClicked(GtkButton* button, gpointer user_data) {
+    auto* settings = static_cast<BrayaSettings*>(user_data);
+    settings->loadUnpackedExtension();
+}
+
+void BrayaSettings::loadUnpackedExtension() {
+    // Create file chooser dialog for selecting directory
+    GtkWidget* fileDialog = gtk_file_chooser_dialog_new(
+        "Select Extension Directory",
+        GTK_WINDOW(dialog),
+        GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
+        "Cancel", GTK_RESPONSE_CANCEL,
+        "Load", GTK_RESPONSE_ACCEPT,
+        nullptr
+    );
+
+    // Set default folder to home directory
+    const char* homeDir = g_get_home_dir();
+    GFile* homeFile = g_file_new_for_path(homeDir);
+    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(fileDialog), homeFile, nullptr);
+    g_object_unref(homeFile);
+
+    // Show dialog
+    g_signal_connect(fileDialog, "response", G_CALLBACK(+[](GtkDialog* dlg, int response, gpointer user_data) {
+        auto* settings = static_cast<BrayaSettings*>(user_data);
+
+        if (response == GTK_RESPONSE_ACCEPT) {
+            GFile* folder = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(dlg));
+            char* path = g_file_get_path(folder);
+
+            std::cout << "📦 Loading extension from: " << path << std::endl;
+
+            // Load the extension
+            if (settings->m_extensionManager->loadWebExtension(path)) {
+                std::cout << "✓ Extension loaded successfully!" << std::endl;
+                settings->saveExtensionStates();
+                settings->refreshExtensionsList();
+            } else {
+                std::cerr << "❌ Failed to load extension" << std::endl;
+
+                // Show error dialog
+                GtkWidget* errorDialog = gtk_message_dialog_new(
+                    GTK_WINDOW(settings->dialog),
+                    GTK_DIALOG_MODAL,
+                    GTK_MESSAGE_ERROR,
+                    GTK_BUTTONS_OK,
+                    "Failed to Load Extension"
+                );
+                gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(errorDialog),
+                    "Could not load extension from:\n%s\n\nMake sure the directory contains a valid manifest.json file.", path);
+                gtk_window_present(GTK_WINDOW(errorDialog));
+                g_signal_connect(errorDialog, "response", G_CALLBACK(gtk_window_destroy), nullptr);
+            }
+
+            g_free(path);
+            g_object_unref(folder);
+        }
+
+        gtk_window_destroy(GTK_WINDOW(dlg));
+    }), this);
+
+    gtk_window_present(GTK_WINDOW(fileDialog));
+}
+
+void BrayaSettings::onToggleExtension(GtkSwitch* toggle, gboolean state, gpointer user_data) {
+    auto* data = static_cast<ExtensionRowData*>(user_data);
+    auto* extension = data->settings->m_extensionManager->getWebExtension(data->extensionId);
+
+    if (extension) {
+        extension->setEnabled(state);
+        std::cout << (state ? "✓ Enabled" : "✗ Disabled") << " extension: " << extension->getName() << std::endl;
+        data->settings->saveExtensionStates();
+
+        // Update the extension buttons in the toolbar via callback
+        if (data->settings->m_extensionChangeCallback) {
+            data->settings->m_extensionChangeCallback();
+        }
+    }
+}
+
+void BrayaSettings::onRemoveExtension(GtkButton* button, gpointer user_data) {
+    auto* data = static_cast<ExtensionRowData*>(user_data);
+    data->settings->removeExtension(data->extensionId);
+}
+
+void BrayaSettings::removeExtension(const std::string& extensionId) {
+    auto* extension = m_extensionManager->getWebExtension(extensionId);
+    if (!extension) {
+        return;
+    }
+
+    std::string extensionName = extension->getName();
+
+    // Show confirmation dialog
+    GtkWidget* confirmDialog = gtk_message_dialog_new(
+        GTK_WINDOW(dialog),
+        GTK_DIALOG_MODAL,
+        GTK_MESSAGE_QUESTION,
+        GTK_BUTTONS_NONE,
+        "Remove Extension?"
+    );
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(confirmDialog),
+        "Are you sure you want to remove '%s'?\n\nThe extension files will not be deleted from disk.",
+        extensionName.c_str());
+
+    gtk_dialog_add_buttons(GTK_DIALOG(confirmDialog),
+        "Cancel", GTK_RESPONSE_CANCEL,
+        "Remove", GTK_RESPONSE_ACCEPT,
+        nullptr);
+
+    // Make Remove button destructive
+    GtkWidget* removeBtn = gtk_dialog_get_widget_for_response(GTK_DIALOG(confirmDialog), GTK_RESPONSE_ACCEPT);
+    gtk_widget_add_css_class(removeBtn, "destructive-action");
+
+    auto* data = new std::pair<BrayaSettings*, std::string>(this, extensionId);
+    auto callback = +[](GtkDialog* dlg, int response, gpointer user_data) {
+        auto* data = static_cast<std::pair<BrayaSettings*, std::string>*>(user_data);
+
+        if (response == GTK_RESPONSE_ACCEPT) {
+            std::cout << "🗑️  Removing extension: " << data->second << std::endl;
+            data->first->m_extensionManager->removeWebExtension(data->second);
+            data->first->saveExtensionStates();
+            data->first->refreshExtensionsList();
+
+            // Update the extension buttons in the toolbar via callback
+            if (data->first->m_extensionChangeCallback) {
+                data->first->m_extensionChangeCallback();
+            }
+        }
+
+        delete data;
+        gtk_window_destroy(GTK_WINDOW(dlg));
+    };
+    g_signal_connect_data(confirmDialog, "response", G_CALLBACK(callback), data, nullptr, (GConnectFlags)0);
+
+    gtk_window_present(GTK_WINDOW(confirmDialog));
+}
+
+void BrayaSettings::saveExtensionStates() {
+    if (!m_extensionManager) return;
+
+    const char* configDir = g_get_user_config_dir();
+    std::string configPath = std::string(configDir) + "/braya-browser";
+    std::string extensionsFile = configPath + "/extensions.json";
+
+    // Create JSON array of installed extensions
+    JsonBuilder* builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "extensions");
+    json_builder_begin_array(builder);
+
+    auto extensions = m_extensionManager->getWebExtensions();
+    for (auto* extension : extensions) {
+        json_builder_begin_object(builder);
+        json_builder_set_member_name(builder, "id");
+        json_builder_add_string_value(builder, extension->getId().c_str());
+        json_builder_set_member_name(builder, "path");
+        json_builder_add_string_value(builder, extension->getPath().c_str());
+        json_builder_set_member_name(builder, "enabled");
+        json_builder_add_boolean_value(builder, extension->isEnabled());
+        json_builder_end_object(builder);
+    }
+
+    json_builder_end_array(builder);
+    json_builder_end_object(builder);
+
+    // Generate JSON string
+    JsonNode* root = json_builder_get_root(builder);
+    JsonGenerator* generator = json_generator_new();
+    json_generator_set_root(generator, root);
+    json_generator_set_pretty(generator, TRUE);
+    gchar* jsonData = json_generator_to_data(generator, nullptr);
+
+    // Write to file
+    std::ofstream file(extensionsFile);
+    if (file.is_open()) {
+        file << jsonData;
+        file.close();
+        std::cout << "✓ Saved extension states to: " << extensionsFile << std::endl;
+    } else {
+        std::cerr << "ERROR: Could not write to: " << extensionsFile << std::endl;
+    }
+
+    g_free(jsonData);
+    g_object_unref(generator);
+    json_node_free(root);
+    g_object_unref(builder);
+}
+
+void BrayaSettings::loadExtensionStates() {
+    if (!m_extensionManager) return;
+
+    const char* configDir = g_get_user_config_dir();
+    std::string extensionsFile = std::string(configDir) + "/braya-browser/extensions.json";
+
+    // Check if file exists
+    if (!g_file_test(extensionsFile.c_str(), G_FILE_TEST_EXISTS)) {
+        std::cout << "ℹ️  No saved extensions file found" << std::endl;
+        return;
+    }
+
+    // Read file
+    std::ifstream file(extensionsFile);
+    if (!file.is_open()) {
+        std::cerr << "ERROR: Could not open: " << extensionsFile << std::endl;
+        return;
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    file.close();
+    std::string jsonContent = buffer.str();
+
+    // Parse JSON
+    GError* error = nullptr;
+    JsonParser* parser = json_parser_new();
+
+    if (!json_parser_load_from_data(parser, jsonContent.c_str(), -1, &error)) {
+        std::cerr << "ERROR: Failed to parse extensions.json: " << error->message << std::endl;
+        g_error_free(error);
+        g_object_unref(parser);
+        return;
+    }
+
+    JsonNode* root = json_parser_get_root(parser);
+    if (!JSON_NODE_HOLDS_OBJECT(root)) {
+        g_object_unref(parser);
+        return;
+    }
+
+    JsonObject* rootObj = json_node_get_object(root);
+    if (!json_object_has_member(rootObj, "extensions")) {
+        g_object_unref(parser);
+        return;
+    }
+
+    JsonArray* extensionsArray = json_object_get_array_member(rootObj, "extensions");
+    guint numExtensions = json_array_get_length(extensionsArray);
+
+    std::cout << "📦 Loading " << numExtensions << " saved extensions..." << std::endl;
+
+    for (guint i = 0; i < numExtensions; i++) {
+        JsonObject* extObj = json_array_get_object_element(extensionsArray, i);
+
+        if (json_object_has_member(extObj, "path")) {
+            const char* path = json_object_get_string_member(extObj, "path");
+            bool enabled = json_object_has_member(extObj, "enabled") ?
+                          json_object_get_boolean_member(extObj, "enabled") : true;
+
+            if (m_extensionManager->loadWebExtension(path)) {
+                // Set enabled state
+                const char* id = json_object_get_string_member(extObj, "id");
+                auto* extension = m_extensionManager->getWebExtension(id);
+                if (extension) {
+                    extension->setEnabled(enabled);
+                }
+            }
+        }
+    }
+
+    g_object_unref(parser);
+    std::cout << "✓ Extensions loaded from config" << std::endl;
 }

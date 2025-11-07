@@ -31,7 +31,8 @@ public:
     int findBookmarkByUrl(const std::string& url);
     std::vector<Bookmark> getBookmarks();
     std::vector<Bookmark> searchBookmarks(const std::string& query);
-    
+    std::vector<std::string> getUniqueFolders();
+
     void showBookmarksManager(GtkWindow* parent);
     void saveToFile();
     void loadFromFile();
@@ -48,7 +49,10 @@ public:
     // Speed dial / New tab page
     GtkWidget* createSpeedDial();
     std::vector<Bookmark> getFavoriteBookmarks(int count = 12);
-    
+
+    // Folder management
+    static std::string showNewFolderDialog(GtkWindow* parent);
+
 private:
     std::vector<Bookmark> bookmarks;
     std::string bookmarksFilePath;
@@ -58,7 +62,7 @@ private:
     
     void createManagerDialog(GtkWindow* parent);
     void refreshBookmarksList();
-    
+
     static void onAddBookmarkClicked(GtkButton* button, gpointer data);
     static void onEditBookmarkClicked(GtkButton* button, gpointer data);
     static void onDeleteBookmarkClicked(GtkButton* button, gpointer data);

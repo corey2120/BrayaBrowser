@@ -1,5 +1,8 @@
 #include "BrayaTab.h"
 #include "BrayaPasswordManager.h"
+#include "extensions/BrayaExtensionManager.h"
+#include "extensions/BrayaWebExtension.h"
+#include "extensions/BrayaExtensionAPI.h"
 #include <iostream>
 #include <cctype>
 #include <fstream>
@@ -7,10 +10,10 @@
 #include <vector>
 #include <sys/stat.h>
 
-BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr)
+BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, BrayaExtensionManager* extMgr)
     : id(id), url(url ? url : "about:braya"), title("New Tab"), isLoading(false),
-      favicon(nullptr), tabButton(nullptr), passwordManager(passwordMgr), userContentManager(nullptr),
-      pinned(false), muted(false), readerMode(false) {
+      favicon(nullptr), tabButton(nullptr), passwordManager(passwordMgr), extensionManager(extMgr),
+      userContentManager(nullptr), pinned(false), muted(false), readerMode(false) {
 
     // Create WebView first
     webView = WEBKIT_WEB_VIEW(webkit_web_view_new());
@@ -31,6 +34,9 @@ BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr)
     if (passwordManager) {
         setupPasswordManager();
     }
+
+    // Setup extension detector for automatic installation
+    setupExtensionDetector();
 
     // Connect signals
     g_signal_connect(webView, "load-changed", G_CALLBACK(onLoadChanged), this);
@@ -88,6 +94,17 @@ void BrayaTab::onLoadChanged(WebKitWebView* webView, WebKitLoadEvent loadEvent, 
                 }
                 tab->favicon = GDK_TEXTURE(g_object_ref(favicon));
             }
+
+            // Inject extension content scripts
+            if (tab->extensionManager) {
+                const char* currentUri = webkit_web_view_get_uri(webView);
+                if (currentUri) {
+                    tab->injectExtensionContentScripts(currentUri);
+                }
+            }
+
+            // Inject extension detector script for automatic installation
+            tab->injectExtensionDetectorScript();
 
             // Don't auto-fill on page load (Safari-style - wait for user interaction)
             // Passwords will be offered when user clicks on the field
@@ -168,7 +185,7 @@ void BrayaTab::updateButton() {
     if (!tabButton || !GTK_IS_BUTTON(tabButton)) {
         return;
     }
-    
+
     try {
         // Get the icon box from the tab button
         GtkWidget* iconBox = GTK_WIDGET(g_object_get_data(G_OBJECT(tabButton), "icon-box"));
@@ -176,7 +193,7 @@ void BrayaTab::updateButton() {
             std::cerr << "No icon box found!" << std::endl;
             return;
         }
-        
+
         // Clear icon box
         GtkWidget* child = gtk_widget_get_first_child(iconBox);
         while (child) {
@@ -184,15 +201,23 @@ void BrayaTab::updateButton() {
             gtk_box_remove(GTK_BOX(iconBox), child);
             child = next;
         }
-        
+
+        // Create an overlay box for stacking indicators
+        GtkWidget* overlayBox = gtk_overlay_new();
+        gtk_widget_set_size_request(overlayBox, 32, 32);
+
+        // Main icon container (bottom layer)
+        GtkWidget* mainIconBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_widget_set_halign(mainIconBox, GTK_ALIGN_CENTER);
+        gtk_widget_set_valign(mainIconBox, GTK_ALIGN_CENTER);
+
         // If we have a favicon, show it as an image
         if (favicon && GDK_IS_TEXTURE(favicon)) {
             GtkWidget* image = gtk_image_new_from_paintable(GDK_PAINTABLE(favicon));
             if (image && GTK_IS_IMAGE(image)) {
                 gtk_image_set_pixel_size(GTK_IMAGE(image), 20);
                 gtk_widget_set_size_request(image, 20, 20);
-                gtk_box_append(GTK_BOX(iconBox), image);
-                std::cout << "✅ Favicon displayed for tab " << id << std::endl;
+                gtk_box_append(GTK_BOX(mainIconBox), image);
             }
         } else {
             // Fallback: Show first letter of title
@@ -207,21 +232,80 @@ void BrayaTab::updateButton() {
                     icon = "•";
                 }
             }
-            
+
             GtkWidget* label = gtk_label_new(icon.c_str());
             if (label && GTK_IS_LABEL(label)) {
                 gtk_widget_add_css_class(label, "tab-icon-label");
-                gtk_box_append(GTK_BOX(iconBox), label);
+                gtk_box_append(GTK_BOX(mainIconBox), label);
             }
         }
-        
-        // Set tooltip with title and URL
+
+        gtk_overlay_set_child(GTK_OVERLAY(overlayBox), mainIconBox);
+
+        // Add pinned indicator (top-left overlay)
+        if (pinned) {
+            GtkWidget* pinLabel = gtk_label_new("📌");
+            gtk_widget_set_halign(pinLabel, GTK_ALIGN_START);
+            gtk_widget_set_valign(pinLabel, GTK_ALIGN_START);
+            gtk_widget_add_css_class(pinLabel, "tab-pin-indicator");
+            gtk_label_set_xalign(GTK_LABEL(pinLabel), 0);
+            gtk_label_set_yalign(GTK_LABEL(pinLabel), 0);
+            gtk_overlay_add_overlay(GTK_OVERLAY(overlayBox), pinLabel);
+        }
+
+        // Add audio/mute indicator (bottom-right overlay)
+        // Check if tab is playing audio
+        bool isPlayingAudio = webkit_web_view_is_playing_audio(webView);
+        if (isPlayingAudio || muted) {
+            std::string audioIcon = muted ? "🔇" : "🔊";
+            GtkWidget* audioLabel = gtk_label_new(audioIcon.c_str());
+            gtk_widget_set_halign(audioLabel, GTK_ALIGN_END);
+            gtk_widget_set_valign(audioLabel, GTK_ALIGN_END);
+            gtk_widget_add_css_class(audioLabel, "tab-audio-indicator");
+            gtk_label_set_xalign(GTK_LABEL(audioLabel), 1);
+            gtk_label_set_yalign(GTK_LABEL(audioLabel), 1);
+            gtk_overlay_add_overlay(GTK_OVERLAY(overlayBox), audioLabel);
+
+            // Make the audio indicator clickable to mute/unmute
+            GtkGesture* clickGesture = gtk_gesture_click_new();
+            g_object_set_data(G_OBJECT(clickGesture), "tab", this);
+            g_signal_connect(clickGesture, "pressed", G_CALLBACK(+[](GtkGestureClick* gesture, int n_press, double x, double y, gpointer data) {
+                BrayaTab* tab = static_cast<BrayaTab*>(g_object_get_data(G_OBJECT(gesture), "tab"));
+                if (tab) {
+                    tab->setMuted(!tab->isMuted());
+                }
+                // Stop event propagation so it doesn't switch tabs
+                gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+            }), nullptr);
+            gtk_widget_add_controller(audioLabel, GTK_EVENT_CONTROLLER(clickGesture));
+        }
+
+        gtk_box_append(GTK_BOX(iconBox), overlayBox);
+
+        // Set tooltip with title, URL, and status
         std::string tooltip = title.empty() ? "New Tab" : title;
         if (!url.empty() && url != title) {
             tooltip += "\n" + url;
         }
+        if (pinned) {
+            tooltip += "\n📌 Pinned";
+        }
+        if (muted) {
+            tooltip += "\n🔇 Muted";
+        } else if (webkit_web_view_is_playing_audio(webView)) {
+            tooltip += "\n🔊 Playing audio (click speaker to mute)";
+        }
         gtk_widget_set_tooltip_text(tabButton, tooltip.c_str());
-        
+
+        // Adjust button size for pinned tabs (make them smaller)
+        if (pinned) {
+            gtk_widget_set_size_request(tabButton, 36, 48);
+            gtk_widget_add_css_class(tabButton, "tab-pinned");
+        } else {
+            gtk_widget_set_size_request(tabButton, 48, 48);
+            gtk_widget_remove_css_class(tabButton, "tab-pinned");
+        }
+
     } catch (const std::exception& e) {
         std::cerr << "Exception in updateButton: " << e.what() << std::endl;
     } catch (...) {
@@ -606,6 +690,122 @@ void BrayaTab::onCheckPasswords(WebKitUserContentManager* manager, JSCValue* val
     }
 }
 
+// Extension Detector for Automatic Installation
+
+void BrayaTab::setupExtensionDetector() {
+    if (!userContentManager) return;
+
+    // Register message handler for extension installation requests
+    g_signal_connect(userContentManager, "script-message-received::installExtension",
+                     G_CALLBACK(onExtensionInstallRequest), this);
+    webkit_user_content_manager_register_script_message_handler(userContentManager, "installExtension", nullptr);
+
+    std::cout << "✓ Extension detector set up for tab " << id << std::endl;
+}
+
+void BrayaTab::injectExtensionDetectorScript() {
+    // Get path to extension-detector.js
+    std::string scriptPath = getResourcePath("extension-detector.js");
+
+    // Read script content
+    std::ifstream scriptFile(scriptPath);
+    if (!scriptFile.is_open()) {
+        std::cerr << "✗ Failed to load extension-detector.js from: " << scriptPath << std::endl;
+        return;
+    }
+
+    std::stringstream buffer;
+    buffer << scriptFile.rdbuf();
+    std::string scriptContent = buffer.str();
+    scriptFile.close();
+
+    // Inject the script using evaluate_javascript with proper callback
+    webkit_web_view_evaluate_javascript(
+        webView,
+        scriptContent.c_str(),
+        -1,
+        nullptr,
+        nullptr,
+        nullptr,
+        +[](GObject* object, GAsyncResult* result, gpointer user_data) {
+            GError* error = nullptr;
+            JSCValue* value = webkit_web_view_evaluate_javascript_finish(
+                WEBKIT_WEB_VIEW(object), result, &error);
+
+            if (error) {
+                std::cerr << "✗ Extension detector script error: " << error->message << std::endl;
+                g_error_free(error);
+            } else {
+                std::cout << "✓ Extension detector script executed successfully" << std::endl;
+            }
+
+            if (value) {
+                g_object_unref(value);
+            }
+        },
+        nullptr
+    );
+
+    std::cout << "✓ Extension detector script injected for tab " << id << std::endl;
+}
+
+void BrayaTab::onExtensionInstallRequest(WebKitUserContentManager* manager, JSCValue* value, gpointer userData) {
+    if (!userData || !value) return;
+
+    BrayaTab* tab = static_cast<BrayaTab*>(userData);
+    if (!tab) return;
+
+    std::cout << "🔌 Extension install request received from webpage" << std::endl;
+
+    // Parse the JSON message from JavaScript
+    char* jsonStr = jsc_value_to_json(value, 0);
+    if (!jsonStr) {
+        std::cerr << "✗ Failed to parse extension install message" << std::endl;
+        return;
+    }
+
+    std::string jsonData(jsonStr);
+    g_free(jsonStr);
+
+    // Simple JSON parsing to extract url and downloadUrl
+    std::string extensionUrl;
+    std::string downloadUrl;
+
+    // Find "url" field
+    size_t urlPos = jsonData.find("\"url\"");
+    if (urlPos != std::string::npos) {
+        size_t colonPos = jsonData.find(":", urlPos);
+        size_t quoteStart = jsonData.find("\"", colonPos);
+        size_t quoteEnd = jsonData.find("\"", quoteStart + 1);
+        if (quoteStart != std::string::npos && quoteEnd != std::string::npos) {
+            extensionUrl = jsonData.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+        }
+    }
+
+    // Find "downloadUrl" field (optional, might not be present for Chrome Web Store)
+    size_t downloadPos = jsonData.find("\"downloadUrl\"");
+    if (downloadPos != std::string::npos) {
+        size_t colonPos = jsonData.find(":", downloadPos);
+        size_t quoteStart = jsonData.find("\"", colonPos);
+        size_t quoteEnd = jsonData.find("\"", quoteStart + 1);
+        if (quoteStart != std::string::npos && quoteEnd != std::string::npos) {
+            downloadUrl = jsonData.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+        }
+    }
+
+    std::cout << "📦 Extension URL: " << extensionUrl << std::endl;
+    if (!downloadUrl.empty()) {
+        std::cout << "📦 Download URL: " << downloadUrl << std::endl;
+    }
+
+    // Call the callback if set
+    if (tab->extensionInstallCallback) {
+        tab->extensionInstallCallback(extensionUrl, downloadUrl);
+    } else {
+        std::cerr << "⚠️  No extension install callback set!" << std::endl;
+    }
+}
+
 // Quick Wins Feature Implementations
 
 void BrayaTab::setPinned(bool pin) {
@@ -731,4 +931,147 @@ void BrayaTab::toggleReaderMode() {
     }
     
     updateButton();
+}
+
+// Extension content script injection
+void BrayaTab::injectExtensionContentScripts(const std::string& pageUrl) {
+    if (!extensionManager || !webView) {
+        return;
+    }
+
+    std::cout << "🔌 Checking for content scripts to inject for: " << pageUrl << std::endl;
+
+    // IMPORTANT: Don't inject content scripts into extension pages (popups, options, etc.)
+    // Content scripts are meant for web pages, not extension internal pages
+    if (pageUrl.find("file://") == 0) {
+        // Check if this is an extension URL (contains the extensions directory)
+        std::string extensionsDir = g_get_home_dir() + std::string("/.config/braya-browser/extensions/");
+        if (pageUrl.find(extensionsDir) != std::string::npos) {
+            std::cout << "  ⏭️  Skipping content script injection for extension page" << std::endl;
+            return;
+        }
+    }
+
+    auto extensions = extensionManager->getWebExtensions();
+
+    for (auto* extension : extensions) {
+        if (!extension || !extension->isEnabled()) {
+            continue;
+        }
+
+        auto contentScripts = extension->getContentScripts();
+
+        for (const auto& cs : contentScripts) {
+            // Check if this content script matches the current URL
+            bool matches = false;
+            for (const auto& pattern : cs.matches) {
+                if (pattern == "<all_urls>" ||
+                    pattern == "http://*/*" ||
+                    pattern == "https://*/*" ||
+                    pageUrl.find(pattern) != std::string::npos) {
+                    matches = true;
+                    break;
+                }
+
+                // Basic wildcard matching for patterns like "https://example.com/*"
+                if (pattern.back() == '*' && pageUrl.find(pattern.substr(0, pattern.length() - 1)) == 0) {
+                    matches = true;
+                    break;
+                }
+            }
+
+            if (!matches) {
+                continue;
+            }
+
+            std::cout << "  ✓ Extension '" << extension->getName() << "' matches this page" << std::endl;
+
+            // Inject CSS files first
+            for (const auto& cssFile : cs.css) {
+                std::string cssPath = extension->getPath() + "/" + cssFile;
+                std::ifstream file(cssPath);
+                if (file.is_open()) {
+                    std::stringstream buffer;
+                    buffer << file.rdbuf();
+                    std::string cssContent = buffer.str();
+                    file.close();
+
+                    // Escape CSS content for JavaScript string
+                    std::string escapedCss;
+                    for (char c : cssContent) {
+                        if (c == '\\') escapedCss += "\\\\";
+                        else if (c == '\'') escapedCss += "\\'";
+                        else if (c == '\"') escapedCss += "\\\"";
+                        else if (c == '\n') escapedCss += "\\n";
+                        else if (c == '\r') escapedCss += "\\r";
+                        else if (c == '\t') escapedCss += "\\t";
+                        else escapedCss += c;
+                    }
+
+                    // Inject CSS into the page
+                    std::string script = "(function() { "
+                                       "var style = document.createElement('style'); "
+                                       "style.textContent = '" + escapedCss + "'; "
+                                       "document.head.appendChild(style); "
+                                       "})();";
+
+                    webkit_web_view_evaluate_javascript(
+                        webView,
+                        script.c_str(),
+                        -1,
+                        nullptr,
+                        nullptr,
+                        nullptr,
+                        nullptr,
+                        nullptr
+                    );
+
+                    std::cout << "    → Injected CSS: " << cssFile << std::endl;
+                }
+            }
+
+            // Inject JavaScript files
+            for (const auto& jsFile : cs.js) {
+                std::string jsPath = extension->getPath() + "/" + jsFile;
+                std::ifstream file(jsPath);
+                if (file.is_open()) {
+                    std::stringstream buffer;
+                    buffer << file.rdbuf();
+                    std::string jsContent = buffer.str();
+                    file.close();
+
+                    // Wrap the script to provide comprehensive API for content scripts
+                    std::string wrappedScript =
+                        "(function() { \n" +
+                        BrayaExtensionAPI::getContentScriptAPI() + "\n"
+                        "  // Firefox compatibility: browser.* = chrome.*\n"
+                        "  if (!window.browser) window.browser = window.chrome;\n"
+                        "  \n"
+                        "  console.log('🔌 [" + extension->getName() + "] Content script loading...');\n"
+                        "  \n"
+                        "  // Execute the actual content script\n"
+                        "  try {\n" +
+                        jsContent + "\n"
+                        "    console.log('✓ [" + extension->getName() + "] Content script loaded successfully');\n"
+                        "  } catch(e) {\n"
+                        "    console.error('❌ [" + extension->getName() + "] Content script error:', e);\n"
+                        "  }\n"
+                        "})();";
+
+                    webkit_web_view_evaluate_javascript(
+                        webView,
+                        wrappedScript.c_str(),
+                        -1,
+                        nullptr,
+                        nullptr,
+                        nullptr,
+                        nullptr,
+                        nullptr
+                    );
+
+                    std::cout << "    → Injected JS: " << jsFile << std::endl;
+                }
+            }
+        }
+    }
 }

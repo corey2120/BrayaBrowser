@@ -1,12 +1,12 @@
 # Braya Browser TODO & Roadmap
 
-**Last Updated**: November 3, 2024 - 2:45 PM  
-**Current Version**: 1.0.1-beta10  
-**Recent**: Professional icon design complete! ✨
+**Last Updated**: November 6, 2025 - 7:00 AM
+**Current Version**: 1.0.1-beta11 (in progress)
+**Recent**: WebExtension support COMPLETE! uBlock Origin & other extensions working! 🎉
 
 ---
 
-## ✅ COMPLETED - Beta 9 & 10
+## ✅ COMPLETED - Beta 9, 10, & 11
 
 ### Bookmarks Bar - FIXED! ✅ (Beta 9)
 **Status**: COMPLETE - All issues resolved!
@@ -32,13 +32,39 @@
 - [x] Icon cache integration
 - [x] Professional appearance in all contexts
 
+### WebExtension Support - COMPLETE! 🎉 (Beta 11)
+**Status**: FULLY FUNCTIONAL - Chrome/Firefox extensions working!
+
+**Implemented**:
+- [x] WebExtension API infrastructure
+- [x] Chrome/Firefox Extension API compatibility
+- [x] Extension installation from .zip files
+- [x] Background pages with proper context isolation
+- [x] Content script injection at document_start/idle
+- [x] Extension toolbar buttons with popups
+- [x] Persistent storage for installed extensions
+- [x] Extension icons in toolbar
+- [x] Browser API injection (tabs, storage, runtime, webRequest, etc.)
+- [x] Message passing between content and background
+- [x] Working extensions: uBlock Origin, Port Authority
+- [x] Extension manifest parsing (v2 & v3)
+- [x] Permissions system
+
 ---
 
-## 🚨 HIGH PRIORITY - Next Session
+## 🚨 HIGH PRIORITY - Next Session (UI Polish & Beta 12 Release)
 
-## 🚨 HIGH PRIORITY - Next Session
+### UI Polish & Fixes - PRIORITY FOR NEXT SESSION
+- [ ] **Fix bookmarks bar size** - Too large, needs to be more compact
+- [ ] **Fix double dog logo in upper left** - Duplicate icon issue
+- [ ] **Review and fix other UI issues**:
+  - Spacing/padding inconsistencies
+  - Button sizes
+  - Icon alignment
+  - Theme consistency
+- [ ] **Build new Beta 12 RPM** with all fixes and WebExtension support
 
-### Tab Features UI (Ready for Beta 11)
+### Tab Features UI
 - [x] WebKit rendering engine
 - [x] Tab management with groups
 - [x] Bookmarks system
@@ -101,23 +127,30 @@
 
 ---
 
-## 🎯 Medium Priority - Beta10+
+## 🎯 Medium Priority - Beta12+
 
-### Extensions/Add-ons Support (HUGE!)
-- [ ] **Extension API**
+### Extensions/Add-ons Support - COMPLETE! ✅
+- [x] **Extension API**
   - WebExtension API compatibility
   - Chrome extension support
-  - Basic manifest v3 support
-  
-- [ ] **Extension Manager**
-  - Enable/disable extensions
-  - Update management
+  - Basic manifest v2 & v3 support
+
+- [x] **Extension Manager**
+  - Enable/disable extensions (via settings)
+  - Extension installation from zip
   - Permissions system
-  
-- [ ] **Popular Extensions**
-  - uBlock Origin
-  - DarkReader
-  - Privacy Badger
+
+- [x] **Popular Extensions Working**
+  - uBlock Origin ✅
+  - Port Authority ✅
+  - Ready for more extensions
+
+### Extension Enhancements (Future)
+- [ ] Extension store/marketplace UI
+- [ ] Auto-update for extensions
+- [ ] Extension settings UI
+- [ ] Permission prompts on install
+- [ ] More extension APIs (notifications, downloads, etc.)
 
 ### Privacy Features
 - [ ] **Built-in ad blocker**
@@ -265,56 +298,61 @@
 - [x] Core browser functionality (100%)
 - [x] Password manager (100%)
 - [x] Reader mode & screenshots (100%)
-- [ ] **Bookmarks system (50% - BAR BROKEN!)**
+- [x] **Bookmarks system (100%)**
+- [x] **Extensions support (95%)**
 - [x] Visual polish (85%)
 - [ ] Tab features (60% - UI pending)
-- [ ] Privacy features (20%)
-- [ ] Extensions (0%)
+- [ ] Privacy features (25% - via uBlock)
+- [ ] RPM packaging (needs update for Beta 12)
 
 ### Overall Completion
-**Estimated: 70%** for a "complete" browser experience  
-*(Down from 75% due to broken bookmarks)*
+**Estimated: 85%** for a "complete" browser experience
+*(Up from 70% due to extension support!)*
 
 **What's Working Great**:
 - Core browsing ✅
 - Password management ✅
 - Reader mode & screenshots ✅
+- Bookmarks system ✅
+- **WebExtension support ✅**
 - Visual styling ✅
 
-**What's BROKEN**:
-- Bookmarks bar ❌ (CRITICAL!)
+**What Needs Polish**:
+- UI sizing/spacing ⚠️ (bookmarks bar too large, double logo)
+- Tab UI features ⚠️
 
 **What Needs Work**:
-- Tab UI polish ⚠️
-- Extensions support ❌
-- Privacy features ⚠️
+- Privacy features (enhanced by extensions now)
 - Sync/cloud ❌
+- RPM packaging update ⚠️
 
 ---
 
 ## 🎯 Recommended Next Steps
 
-### For Beta9 (URGENT - Next Session):
-**PRIORITY 1: Fix Bookmarks Bar (2-3 hours)**
-1. Debug why bar isn't showing
-2. Wire up click handlers properly
-3. Add show/hide toggle (Ctrl+Shift+B)
-4. Add right-click edit/delete menu
-5. Test thoroughly with multiple bookmarks
+### For Beta12 (UI Polish - Next Session):
+**PRIORITY 1: UI Fixes (1-2 hours)**
+1. Fix bookmarks bar size (too large, make more compact)
+2. Fix double dog logo in upper left corner
+3. Review UI for other spacing/sizing issues
+4. Test across different window sizes
 
-**PRIORITY 2: Tab UI Polish (2 hours)**
-6. Add tab pinning visual indicators
-7. Add tab mute button UI
+**PRIORITY 2: Build Beta 12 RPM (1 hour)**
+5. Update version to 1.0.1-beta12
+6. Build new RPM with all fixes and WebExtension support
+7. Test installation on clean system
+8. Update release notes with extension support
 
-**Estimated Time**: 4-5 hours total
+**Estimated Time**: 2-3 hours total
 
-### For Beta10:
-1. Bookmark folders UI
-2. Drag & drop bookmarks
-3. Reader mode dark theme
-4. Start extensions infrastructure
+### For Beta13 (Future):
+1. Tab pinning visual indicators
+2. Tab mute button UI
+3. Extension store/marketplace UI
+4. Reader mode dark theme
+5. More extension API support
 
-**Estimated Time**: 6-8 hours
+**Estimated Time**: 4-6 hours
 
 ---
 
@@ -377,10 +415,10 @@
 
 ---
 
-**Current State**: Beta8 - Feature-complete but bookmarks broken! 🔴  
-**Next Milestone**: Beta9 - FIX BOOKMARKS BAR (urgent!)  
-**Big Goal**: Beta15 - Extension support (game changer!)
+**Current State**: Beta11 - WebExtension support COMPLETE! 🎉
+**Next Milestone**: Beta12 - UI Polish & new RPM release
+**Big Achievement**: Extension support working (uBlock Origin, Port Authority, etc.)!
 
-Last session accomplished: **9 major features but bookmarks don't work!** ⚠️
+Last session accomplished: **Full WebExtension API with working extensions!** 🚀
 
-**NEXT SESSION: Focus 100% on fixing bookmarks bar first!** 🎯
+**NEXT SESSION: UI fixes (bookmarks bar size, double logo) and Beta 12 RPM!** 🎯

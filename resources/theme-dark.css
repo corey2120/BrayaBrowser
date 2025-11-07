@@ -159,7 +159,8 @@ headerbar.titlebar * {
 
 .visual-bookmarks-bar {
     background: #2b2a33;
-    padding: 2px 8px;
+    padding: 0;
+    min-height: 32px;
 }
 
 .bookmarks-bar-scroll {
@@ -167,8 +168,8 @@ headerbar.titlebar * {
 }
 
 .bookmark-bar-item {
-    padding: 2px 8px;
-    margin: 0 2px;
+    padding: 4px 6px;
+    margin: 0 1px;
     border-radius: 3px;
     background: transparent;
     border: 1px solid transparent;

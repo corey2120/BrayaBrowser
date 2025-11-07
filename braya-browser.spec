@@ -1,6 +1,6 @@
 Name:           braya-browser
 Version:        1.0.1
-Release:        0.12.beta12%{?dist}
+Release:        0.13.beta13%{?dist}
 Summary:        A modern, highly customizable web browser built with C++ and WebKit
 License:        MIT
 URL:            https://github.com/corey2120/BrayaBrowser

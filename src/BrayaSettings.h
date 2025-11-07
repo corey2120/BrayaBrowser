@@ -6,6 +6,9 @@
 #include <map>
 #include <functional>
 
+class BrayaExtensionManager;
+class ExtensionInstaller;
+
 class BrayaSettings {
 public:
     enum Theme {
@@ -26,8 +29,14 @@ public:
     
     BrayaSettings();
     void show(GtkWindow* parent);
+
+    // Set callback for when extensions are installed/removed
+    void setExtensionChangeCallback(std::function<void()> callback) {
+        m_extensionChangeCallback = callback;
+    }
     void applyToWindow(GtkWidget* window);  // Apply visual changes
     void setThemeCallback(std::function<void(int)> callback) { themeCallback = callback; }
+    void setExtensionManager(BrayaExtensionManager* manager) { m_extensionManager = manager; }
     
     // Getters
     Theme getTheme() const { return theme; }
@@ -60,7 +69,12 @@ public:
     void setDownloadPath(const std::string& path);
     void setHomePage(const std::string& page);
     void setSearchEngine(const std::string& engine);
-    
+
+    // Extension management (public for BrayaWindow)
+    void loadExtensionStates();
+    void saveExtensionStates();
+    void refreshExtensionsList();
+
 private:
     Theme theme;
     ColorScheme colors;
@@ -79,6 +93,11 @@ private:
     
     GtkWidget* dialog;
     GtkWidget* notebook;
+    BrayaExtensionManager* m_extensionManager;
+    std::function<void()> m_extensionChangeCallback;
+
+    // Extensions widgets
+    GtkWidget* extensionsList;
     
     // Appearance widgets
     GtkWidget* themeCombo;
@@ -114,11 +133,17 @@ private:
     GtkWidget* createSecurityTab();
     GtkWidget* createPrivacyTab();
     GtkWidget* createAdvancedTab();
+    GtkWidget* createExtensionsTab();
     void applySettings();
     void applyTheme();
     void saveSettings();
     void loadSettings();
     void updateUIFromSettings();
+
+    // Extension management helpers
+    GtkWidget* createExtensionRow(void* extension);
+    void loadUnpackedExtension();
+    void removeExtension(const std::string& extensionId);
     
     // Callbacks
     static void onThemeChanged(GtkComboBox* combo, gpointer data);
@@ -127,6 +152,11 @@ private:
     static void onCloseClicked(GtkButton* button, gpointer data);
     static void onBookmarksToggled(GtkSwitch* widget, gboolean state, gpointer data);
     static void onFontSizeChanged(GtkSpinButton* button, gpointer data);
+
+    // Extension callbacks
+    static void onLoadUnpackedClicked(GtkButton* button, gpointer data);
+    static void onToggleExtension(GtkSwitch* toggle, gboolean state, gpointer data);
+    static void onRemoveExtension(GtkButton* button, gpointer data);
 };
 
 #endif // BRAYA_SETTINGS_H

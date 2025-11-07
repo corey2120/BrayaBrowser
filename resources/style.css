@@ -313,7 +313,7 @@ separator {
 .visual-bookmarks-bar {
     background: linear-gradient(180deg, #f9f9fa 0%, #f0f0f1 100%);
     border-bottom: 1px solid #d7d7db;
-    padding: 2px 8px;
+    padding: 0;
     min-height: 32px;
 }
 
@@ -322,8 +322,8 @@ separator {
 }
 
 .bookmark-bar-item {
-    padding: 2px 8px;
-    margin: 0 2px;
+    padding: 4px 6px;
+    margin: 0 1px;
     border-radius: 3px;
     background: transparent;
     border: 1px solid transparent;

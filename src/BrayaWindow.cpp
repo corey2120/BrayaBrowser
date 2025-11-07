@@ -6,6 +6,10 @@
 #include "BrayaBookmarks.h"
 #include "BrayaPasswordManager.h"
 #include "TabGroup.h"
+#include "extensions/BrayaExtensionManager.h"
+#include "extensions/BrayaWebExtension.h"
+#include "extensions/ExtensionInstaller.h"
+#include "extensions/BrayaExtensionAPI.h"
 #include <iostream>
 #include <cstring>
 #include <ctime>
@@ -14,12 +18,17 @@
 
 BrayaWindow::BrayaWindow(GtkApplication* app)
     : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), nextGroupId(1),
-      settings(std::make_unique<BrayaSettings>()), 
+      settings(std::make_unique<BrayaSettings>()),
       history(std::make_unique<BrayaHistory>()),
       downloads(std::make_unique<BrayaDownloads>()),
       bookmarksManager(std::make_unique<BrayaBookmarks>()),
       passwordManager(std::make_unique<BrayaPasswordManager>()),
-      cssProvider(nullptr) {
+      extensionManager(std::make_unique<BrayaExtensionManager>()),
+      cssProvider(nullptr),
+      statusLabel(nullptr),
+      statusBar(nullptr),
+      window(nullptr),
+      bookmarksBar(nullptr) {
     
     g_print("Creating Braya window...\n");
     
@@ -27,7 +36,8 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     window = gtk_application_window_new(app);
     gtk_window_set_title(GTK_WINDOW(window), "Braya Browser");
     gtk_window_set_default_size(GTK_WINDOW(window), 1400, 900);
-    gtk_window_set_icon_name(GTK_WINDOW(window), "braya-browser");
+    // Don't set window icon - using emoji in headerbar instead
+    // gtk_window_set_icon_name(GTK_WINDOW(window), "braya-browser");
 
     // Store BrayaWindow instance pointer on the GTK window for access in callbacks
     g_object_set_data(G_OBJECT(window), "braya-window-instance", this);
@@ -48,62 +58,220 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     
     // Build UI
     setupUI();
-    
+
     g_print("UI built\n");
-    
+
+    // Initialize extension system BEFORE creating any tabs
+    // This ensures web extensions are loaded before web views are created
+    WebKitWebContext* context = webkit_web_context_get_default();
+    extensionManager->initialize(context);
+
+    // Pass extension manager to settings so it can manage extensions
+    settings->setExtensionManager(extensionManager.get());
+
+    // Set callback to update extension buttons when extensions are installed/removed
+    settings->setExtensionChangeCallback([this]() {
+        std::cout << "🔄 Extension change detected, updating toolbar buttons..." << std::endl;
+        updateExtensionButtons();
+    });
+
+    // Copy web extension .so to extension directory
+    // In development, copy from build directory
+    std::string buildExtPath = "./build/libbraya-web-extension.so";
+    extensionManager->loadNativeExtension(buildExtPath);
+
+    // Auto-load saved extensions from config
+    std::cout << "\n📦 Loading saved extensions..." << std::endl;
+    settings->loadExtensionStates();
+
+    // Load test extension if no extensions are installed
+    if (extensionManager->getWebExtensions().empty()) {
+        std::cout << "📦 Loading test WebExtension..." << std::endl;
+        if (extensionManager->loadWebExtension("./extensions/hello-world")) {
+            std::cout << "✓ Test extension loaded successfully!\n" << std::endl;
+            settings->saveExtensionStates();  // Save it for next time
+        } else {
+            std::cerr << "⚠️  Failed to load test extension\n" << std::endl;
+        }
+    }
+
+    // Update extension buttons in toolbar
+    updateExtensionButtons();
+
     // Create first tab (this will give us access to WebContext)
     createTab();
     
-    // Setup download handling for WebContext
-    // In WebKit2GTK 2.50, we need to connect to the default context
+    // Setup download handling using WebKitNetworkSession (WebKitGTK 6.0+)
+    // In WebKitGTK 6.0, WebKitWebContext::download-started was removed
+    // and replaced with WebKitNetworkSession::download-started
     if (!tabs.empty()) {
-        WebKitWebContext* context = webkit_web_context_get_default();
-        g_print("Connecting to WebContext for downloads...\n");
-        
-        // Try using GObject signal connection with error suppression
-        GError* error = nullptr;
-        gulong handler = g_signal_connect_data(context, "download-started",
-            G_CALLBACK(+[](WebKitWebContext* ctx, WebKitDownload* download, gpointer data) {
-                std::cout << "🔽 Download started via context!" << std::endl;
-                BrayaWindow* window = static_cast<BrayaWindow*>(data);
-                if (window && window->downloads) {
-                    window->downloads->handleDownload(download);
-                }
-            }), this, nullptr, (GConnectFlags)0);
-        
-        if (handler > 0) {
-            g_print("✓ Download handler connected (id: %lu)\n", handler);
+        std::cout << "🔽 Setting up download handler..." << std::endl;
+
+        // Get the network session from the web view
+        WebKitWebView* webView = tabs[0]->getWebView();
+        WebKitNetworkSession* session = webkit_web_view_get_network_session(webView);
+
+        if (session) {
+            g_signal_connect(session, "download-started",
+                G_CALLBACK(+[](WebKitNetworkSession* session, WebKitDownload* download, gpointer data) {
+                    std::cout << "📥 Download started!" << std::endl;
+                    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+
+                    // Get the download request to check the filename
+                    WebKitURIRequest* request = webkit_download_get_request(download);
+                    const char* uri = webkit_uri_request_get_uri(request);
+                    std::string url(uri ? uri : "");
+
+                    std::cout << "   Download URL: " << url << std::endl;
+
+                    // Check if this is an extension file (.xpi or .crx)
+                    bool isExtension = (url.find(".xpi") != std::string::npos ||
+                                       url.find(".crx") != std::string::npos);
+
+                    if (isExtension) {
+                        std::cout << "🔌 Extension file detected! Auto-installing..." << std::endl;
+
+                        // Cancel the download since we'll install directly
+                        webkit_download_cancel(download);
+
+                        // Validate window and extensionManager pointers
+                        if (!window) {
+                            std::cerr << "❌ Window pointer is null!" << std::endl;
+                            return;
+                        }
+
+                        if (!window->extensionManager) {
+                            std::cerr << "❌ ExtensionManager is null!" << std::endl;
+                            return;
+                        }
+
+                        std::cout << "✓ Pointers validated, scheduling installation..." << std::endl;
+
+                        // Copy URL for the idle callback
+                        std::string* urlCopy = new std::string(url);
+
+                        // Schedule installation on GTK main thread to avoid thread-safety issues
+                        g_idle_add(+[](gpointer data) -> gboolean {
+                            // Get URL from the pair
+                            auto* pair = static_cast<std::pair<BrayaWindow*, std::string*>*>(data);
+                            BrayaWindow* win = pair->first;
+                            std::string* urlPtr = pair->second;
+                            std::string url = *urlPtr;
+
+                            delete urlPtr;
+                            delete pair;
+
+                            std::cout << "✓ Running on GTK main thread..." << std::endl;
+
+                            // Validate window pointer is still valid
+                            if (!win) {
+                                std::cerr << "❌ Window pointer became null!" << std::endl;
+                                return FALSE;
+                            }
+
+                            std::cout << "✓ Window pointer: " << (void*)win << std::endl;
+
+                            // Try to validate the pointer is actually a BrayaWindow by checking window widget
+                            if (!win->window || !GTK_IS_WINDOW(win->window)) {
+                                std::cerr << "❌ Window pointer is INVALID - not pointing to a valid BrayaWindow!" << std::endl;
+                                std::cerr << "   win->window = " << (void*)(win->window) << std::endl;
+                                return FALSE;
+                            }
+
+                            std::cout << "✓ Window object validated via GTK window check" << std::endl;
+
+                            // Validate extensionManager
+                            if (!win->extensionManager) {
+                                std::cerr << "❌ ExtensionManager became null!" << std::endl;
+                                return FALSE;
+                            }
+
+                            std::cout << "✓ ExtensionManager valid" << std::endl;
+
+                            // Show "Installing..." notification (now safe on main thread)
+                            std::cout << "→ About to check statusLabel..." << std::endl;
+
+                            GtkWidget* label = win->statusLabel;
+                            std::cout << "→ Got statusLabel pointer: " << (void*)label << std::endl;
+
+                            if (label) {
+                                std::cout << "→ statusLabel is not NULL, checking if it's a GtkLabel..." << std::endl;
+                                if (GTK_IS_LABEL(label)) {
+                                    std::cout << "✓ Updating status label..." << std::endl;
+                                    gtk_label_set_text(GTK_LABEL(label), "📥 Installing extension...");
+                                } else {
+                                    std::cout << "⚠️  statusLabel is not a GtkLabel" << std::endl;
+                                }
+                            } else {
+                                std::cout << "⚠️  Status label is NULL" << std::endl;
+                            }
+
+                            // Install the extension directly from the URL
+                            std::cout << "✓ Creating ExtensionInstaller..." << std::endl;
+                            ExtensionInstaller installer(win->extensionManager.get());
+
+                            std::cout << "✓ Calling installFromUrl..." << std::endl;
+                            installer.installFromUrl(url, [win](bool success, const std::string& message) {
+                                if (success) {
+                                    std::cout << "✅ Extension auto-installed: " << message << std::endl;
+
+                                    // Show success message (safely)
+                                    if (win && win->statusLabel && GTK_IS_LABEL(win->statusLabel)) {
+                                        gtk_label_set_text(GTK_LABEL(win->statusLabel), "✅ Extension installed successfully!");
+
+                                        // Clear message after 3 seconds
+                                        g_timeout_add_seconds(3, +[](gpointer data) -> gboolean {
+                                            if (data && GTK_IS_LABEL(data)) {
+                                                gtk_label_set_text(GTK_LABEL(data), "");
+                                            }
+                                            return FALSE;
+                                        }, win->statusLabel);
+                                    }
+
+                                    win->updateExtensionButtons();
+                                    win->settings->refreshExtensionsList();
+                                    win->settings->saveExtensionStates();
+                                } else {
+                                    std::cerr << "❌ Extension auto-install failed: " << message << std::endl;
+
+                                    // Show error message (safely)
+                                    if (win && win->statusLabel && GTK_IS_LABEL(win->statusLabel)) {
+                                        std::string errorMsg = "❌ Installation failed: " + message;
+                                        gtk_label_set_text(GTK_LABEL(win->statusLabel), errorMsg.c_str());
+
+                                        // Clear after 5 seconds
+                                        g_timeout_add_seconds(5, +[](gpointer data) -> gboolean {
+                                            if (data && GTK_IS_LABEL(data)) {
+                                                gtk_label_set_text(GTK_LABEL(data), "");
+                                            }
+                                            return FALSE;
+                                        }, win->statusLabel);
+                                    }
+                                }
+                            });
+
+                            return FALSE;  // Remove idle callback after running once
+                        }, new std::pair<BrayaWindow*, std::string*>(window, urlCopy));
+                    } else if (window->downloads) {
+                        // Regular download - handle normally
+                        window->downloads->handleDownload(download);
+                    }
+                }), this);
+
+            std::cout << "✓ Download handler connected to NetworkSession" << std::endl;
         } else {
-            g_print("⚠ Could not connect download-started, using fallback\n");
+            std::cerr << "⚠️  Could not get NetworkSession for downloads" << std::endl;
+        }
+
+        // Connect user message handler for receiving messages from web extension
+        if (!tabs.empty() && tabs[0]) {
+            WebKitWebView* webView = tabs[0]->getWebView();
+            g_signal_connect(webView, "user-message-received",
+                G_CALLBACK(BrayaExtensionManager::onUserMessageReceived), this);
+            g_print("✓ Extension message handler connected\n");
         }
     }
-    
-    // Setup download handling for WebContext
-    // Downloads created by webkit_policy_decision_download() should trigger this
-    if (!tabs.empty()) {
-        WebKitWebContext* context = webkit_web_context_get_default();
-        
-        // Suppress GLib warnings during connection attempt
-        g_log_set_handler("GLib-GObject", (GLogLevelFlags)(G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING), 
-            +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
-        
-        gulong handler = g_signal_connect(context, "download-started",
-            G_CALLBACK(+[](WebKitWebContext* ctx, WebKitDownload* download, gpointer data) {
-                std::cout << "📥 Download caught by context!" << std::endl;
-                BrayaWindow* window = static_cast<BrayaWindow*>(data);
-                if (window && window->downloads) {
-                    window->downloads->handleDownload(download);
-                }
-            }), this);
-        
-        // Restore normal logging
-        g_log_set_handler("GLib-GObject", (GLogLevelFlags)(G_LOG_LEVEL_MASK), g_log_default_handler, nullptr);
-        
-        if (handler > 0) {
-            g_print("✓ WebContext download handler connected\n");
-        }
-    }
-    
+
     g_print("First tab created\n");
     
     // Connect keyboard shortcuts
@@ -347,18 +515,25 @@ void BrayaWindow::createNavbar() {
     GtkWidget* headerbar = gtk_header_bar_new();
     gtk_widget_add_css_class(headerbar, "titlebar");
     gtk_header_bar_set_show_title_buttons(GTK_HEADER_BAR(headerbar), TRUE);
+    // Remove the default app icon from headerbar (we're using emoji instead)
+    gtk_header_bar_set_decoration_layout(GTK_HEADER_BAR(headerbar), ":minimize,maximize,close");
     gtk_window_set_titlebar(GTK_WINDOW(window), headerbar);
     
     // Left side box for all left controls
     GtkWidget* leftBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
     gtk_widget_add_css_class(leftBox, "navbar-left");
     gtk_widget_set_halign(leftBox, GTK_ALIGN_START);
-    
-    // Dog logo
-    GtkWidget* dogLabel = gtk_label_new("🐕");
-    gtk_widget_add_css_class(dogLabel, "braya-logo");
-    gtk_box_append(GTK_BOX(leftBox), dogLabel);
-    
+
+    // Sidebar toggle button (like Zen browser)
+    GtkWidget* sidebarToggle = gtk_button_new_from_icon_name("view-left-pane-symbolic");
+    gtk_widget_set_tooltip_text(sidebarToggle, "Toggle Sidebar (Ctrl+B)");
+    gtk_widget_add_css_class(sidebarToggle, "nav-btn");
+    g_signal_connect_swapped(sidebarToggle, "clicked", G_CALLBACK(+[](BrayaWindow* win) {
+        gboolean visible = gtk_widget_get_visible(win->sidebar);
+        gtk_widget_set_visible(win->sidebar, !visible);
+    }), this);
+    gtk_box_append(GTK_BOX(leftBox), sidebarToggle);
+
     // Back button - Firefox style
     backBtn = gtk_button_new_from_icon_name("go-previous-symbolic");
     gtk_widget_add_css_class(backBtn, "nav-btn");
@@ -458,14 +633,19 @@ void BrayaWindow::createNavbar() {
     gtk_widget_add_css_class(devToolsBtn, "action-btn");
     g_signal_connect(devToolsBtn, "clicked", G_CALLBACK(onDevToolsClicked), this);
     gtk_box_append(GTK_BOX(rightBox), devToolsBtn);
-    
+
+    // Extension buttons container (will be populated after extensions load)
+    extensionButtonsBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    gtk_widget_add_css_class(extensionButtonsBox, "extension-buttons");
+    gtk_box_append(GTK_BOX(rightBox), extensionButtonsBox);
+
     // Settings button
     GtkWidget* settingsBtn = gtk_button_new_from_icon_name("open-menu-symbolic");
     gtk_widget_set_tooltip_text(settingsBtn, "Settings");
     gtk_widget_add_css_class(settingsBtn, "action-btn");
     g_signal_connect(settingsBtn, "clicked", G_CALLBACK(onSettingsClicked), this);
     gtk_box_append(GTK_BOX(rightBox), settingsBtn);
-    
+
     gtk_header_bar_pack_end(GTK_HEADER_BAR(headerbar), rightBox);
     
     // Create dummy navbar variable for compatibility
@@ -548,8 +728,46 @@ void BrayaWindow::createStatusBar() {
 
 // Tab management
 void BrayaWindow::createTab(const char* url) {
-    auto tab = std::make_unique<BrayaTab>(nextTabId++, url, passwordManager.get());
-    
+    auto tab = std::make_unique<BrayaTab>(nextTabId++, url, passwordManager.get(), extensionManager.get());
+
+    // Set up extension installation callback for automatic installation from web pages
+    tab->setExtensionInstallCallback([this](const std::string& extensionUrl, const std::string& downloadUrl) {
+        std::cout << "🔌 Installing extension automatically from: " << extensionUrl << std::endl;
+
+        // Use the download URL if provided, otherwise use the extension page URL
+        std::string installUrl = downloadUrl.empty() ? extensionUrl : downloadUrl;
+
+        // Create installer and install
+        ExtensionInstaller installer(extensionManager.get());
+        installer.installFromUrl(installUrl, [this](bool success, const std::string& message) {
+            if (success) {
+                std::cout << "✓ Extension installed successfully: " << message << std::endl;
+
+                // Update toolbar buttons
+                updateExtensionButtons();
+
+                // If settings is open, refresh the extensions list
+                settings->refreshExtensionsList();
+                settings->saveExtensionStates();
+            } else {
+                std::cerr << "✗ Extension installation failed: " << message << std::endl;
+
+                // Show error notification to user
+                GtkWidget* dialog = gtk_message_dialog_new(
+                    GTK_WINDOW(window),
+                    GTK_DIALOG_MODAL,
+                    GTK_MESSAGE_ERROR,
+                    GTK_BUTTONS_OK,
+                    "Extension Installation Failed"
+                );
+                gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
+                    "%s", message.c_str());
+                gtk_window_present(GTK_WINDOW(dialog));
+                g_signal_connect(dialog, "response", G_CALLBACK(gtk_window_destroy), nullptr);
+            }
+        });
+    });
+
     // Connect download handler via decide-policy and context
     WebKitWebContext* context = webkit_web_view_get_context(tab->getWebView());
     
@@ -670,8 +888,8 @@ void BrayaWindow::switchToTab(int index) {
         }
     }
     
-    // Update window title
-    std::string title = "🐕 Braya Browser - " + tab->getTitle();
+    // Update window title (no emoji - we have logo label in headerbar)
+    std::string title = "Braya Browser - " + tab->getTitle();
     gtk_window_set_title(GTK_WINDOW(window), title.c_str());
 }
 
@@ -1061,7 +1279,9 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
             window->showFindBar();
             return TRUE;
         } else if (keyval == GDK_KEY_b) {
-            window->showBookmarksManager();
+            // Toggle sidebar (like Zen browser)
+            gboolean visible = gtk_widget_get_visible(window->sidebar);
+            gtk_widget_set_visible(window->sidebar, !visible);
             return TRUE;
         } else if (keyval == GDK_KEY_d || keyval == GDK_KEY_D) {
             window->onAddBookmarkClicked(NULL, window);
@@ -1191,28 +1411,69 @@ void BrayaWindow::showTabContextMenu(int tabId) {
 
 void BrayaWindow::onTabRightClick(GtkGestureClick* gesture, int n_press, double x, double y, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
-    
-    // Show context menu with group options
+
+    // Get the tab button that was clicked
+    GtkWidget* tabButton = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+    int tabIndex = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(tabButton), "tab-index"));
+
+    if (tabIndex < 0 || tabIndex >= window->tabs.size()) {
+        return;
+    }
+
+    BrayaTab* tab = window->tabs[tabIndex].get();
+
+    // Show context menu
     GtkWidget* menu = gtk_popover_new();
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
     gtk_widget_set_margin_start(box, 10);
     gtk_widget_set_margin_end(box, 10);
     gtk_widget_set_margin_top(box, 10);
     gtk_widget_set_margin_bottom(box, 10);
-    
+
+    // Pin/Unpin button
+    std::string pinLabel = tab->isPinned() ? "📍 Unpin Tab" : "📌 Pin Tab";
+    GtkWidget* pinBtn = gtk_button_new_with_label(pinLabel.c_str());
+    g_object_set_data(G_OBJECT(pinBtn), "tab", tab);
+    g_signal_connect(pinBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
+        BrayaTab* t = static_cast<BrayaTab*>(g_object_get_data(G_OBJECT(btn), "tab"));
+        if (t) {
+            t->setPinned(!t->isPinned());
+        }
+    }), nullptr);
+    gtk_box_append(GTK_BOX(box), pinBtn);
+
+    // Mute/Unmute button (only show if tab has audio or is muted)
+    bool hasAudio = webkit_web_view_is_playing_audio(tab->getWebView());
+    if (hasAudio || tab->isMuted()) {
+        std::string muteLabel = tab->isMuted() ? "🔊 Unmute Tab" : "🔇 Mute Tab";
+        GtkWidget* muteBtn = gtk_button_new_with_label(muteLabel.c_str());
+        g_object_set_data(G_OBJECT(muteBtn), "tab", tab);
+        g_signal_connect(muteBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
+            BrayaTab* t = static_cast<BrayaTab*>(g_object_get_data(G_OBJECT(btn), "tab"));
+            if (t) {
+                t->setMuted(!t->isMuted());
+            }
+        }), nullptr);
+        gtk_box_append(GTK_BOX(box), muteBtn);
+    }
+
+    // Separator
+    GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_append(GTK_BOX(box), separator);
+
     // Create group button
     GtkWidget* createBtn = gtk_button_new_with_label("📁 Create New Group");
     gtk_box_append(GTK_BOX(box), createBtn);
-    
+
     // Add to group buttons
     for (size_t i = 0; i < window->tabGroups.size(); i++) {
         std::string label = "➕ " + window->tabGroups[i]->getName();
         GtkWidget* btn = gtk_button_new_with_label(label.c_str());
         gtk_box_append(GTK_BOX(box), btn);
     }
-    
+
     gtk_popover_set_child(GTK_POPOVER(menu), box);
-    gtk_widget_set_parent(menu, GTK_WIDGET(gesture));
+    gtk_widget_set_parent(menu, tabButton);
     gtk_popover_popup(GTK_POPOVER(menu));
 }
 
@@ -1472,9 +1733,39 @@ void BrayaWindow::onBookmarkBarItemRightClick(GtkGestureClick* gesture, int n_pr
         gtk_widget_set_halign(folderLabel, GTK_ALIGN_START);
         gtk_box_append(GTK_BOX(box), folderLabel);
 
-        GtkWidget* folderEntry = gtk_entry_new();
-        gtk_entry_set_placeholder_text(GTK_ENTRY(folderEntry), "Bookmarks Bar (leave empty for bar)");
-        gtk_box_append(GTK_BOX(box), folderEntry);
+        // Get current folder to pre-select
+        std::string currentFolder;
+        BrayaWindow* tempWindow = (BrayaWindow*)g_object_get_data(G_OBJECT(parentWindow), "braya-window-instance");
+        if (tempWindow && tempWindow->bookmarksManager) {
+            int bmIndex = tempWindow->bookmarksManager->findBookmarkByUrl(url);
+            if (bmIndex >= 0) {
+                auto bookmarks = tempWindow->bookmarksManager->getBookmarks();
+                if (bmIndex < (int)bookmarks.size()) {
+                    currentFolder = bookmarks[bmIndex].folder;
+                }
+            }
+        }
+
+        GtkStringList* folderModel = gtk_string_list_new(nullptr);
+        std::vector<std::string> folders;
+        guint selectedIndex = 0;
+        if (tempWindow && tempWindow->bookmarksManager) {
+            folders = tempWindow->bookmarksManager->getUniqueFolders();
+            for (size_t i = 0; i < folders.size(); i++) {
+                gtk_string_list_append(folderModel, folders[i].c_str());
+                if (folders[i] == currentFolder || (currentFolder.empty() && folders[i] == "Bookmarks Bar")) {
+                    selectedIndex = i;
+                }
+            }
+        } else {
+            gtk_string_list_append(folderModel, "Bookmarks Bar");
+        }
+        gtk_string_list_append(folderModel, "Other Bookmarks");
+        gtk_string_list_append(folderModel, "📁 New Folder...");
+
+        GtkWidget* folderDropdown = gtk_drop_down_new(G_LIST_MODEL(folderModel), nullptr);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(folderDropdown), selectedIndex);
+        gtk_box_append(GTK_BOX(box), folderDropdown);
 
         // Buttons
         GtkWidget* btnBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
@@ -1498,7 +1789,7 @@ void BrayaWindow::onBookmarkBarItemRightClick(GtkGestureClick* gesture, int n_pr
         g_object_set_data_full(G_OBJECT(saveBtn), "old-url", g_strdup(url), g_free);
         g_object_set_data(G_OBJECT(saveBtn), "name-entry", nameEntry);
         g_object_set_data(G_OBJECT(saveBtn), "url-entry", urlEntry);
-        g_object_set_data(G_OBJECT(saveBtn), "folder-entry", folderEntry);
+        g_object_set_data(G_OBJECT(saveBtn), "folder-dropdown", folderDropdown);
         g_object_set_data(G_OBJECT(saveBtn), "dialog", dialog);
         g_object_set_data(G_OBJECT(saveBtn), "parent-window", parentWindow);
 
@@ -1506,17 +1797,33 @@ void BrayaWindow::onBookmarkBarItemRightClick(GtkGestureClick* gesture, int n_pr
             const char* oldUrl = (const char*)g_object_get_data(G_OBJECT(btn), "old-url");
             GtkWidget* nameEntry = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "name-entry"));
             GtkWidget* urlEntry = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "url-entry"));
-            GtkWidget* folderEntry = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "folder-entry"));
+            GtkWidget* folderDropdown = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "folder-dropdown"));
             GtkWidget* dialog = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
             GtkWidget* parentWindow = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "parent-window"));
 
             const char* newName = gtk_editable_get_text(GTK_EDITABLE(nameEntry));
             const char* newUrl = gtk_editable_get_text(GTK_EDITABLE(urlEntry));
-            const char* newFolder = gtk_editable_get_text(GTK_EDITABLE(folderEntry));
 
-            if (strlen(newFolder) == 0) {
-                newFolder = "Bookmarks Bar";
+            // Get selected folder from dropdown
+            GtkDropDown* dropdown = GTK_DROP_DOWN(folderDropdown);
+            guint selected = gtk_drop_down_get_selected(dropdown);
+            GtkStringList* model = GTK_STRING_LIST(gtk_drop_down_get_model(dropdown));
+            const char* folder = gtk_string_list_get_string(model, selected);
+
+            std::string finalFolder = folder;
+
+            // Handle "New Folder..." option
+            if (g_str_has_prefix(folder, "📁 New Folder")) {
+                GtkWindow* parent = GTK_WINDOW(dialog);
+                std::string customFolder = BrayaBookmarks::showNewFolderDialog(parent);
+                if (!customFolder.empty()) {
+                    finalFolder = customFolder;
+                } else {
+                    finalFolder = "Other Bookmarks";  // Default if canceled
+                }
             }
+
+            const char* newFolder = finalFolder.c_str();
 
             // Get BrayaWindow instance
             BrayaWindow* window = (BrayaWindow*)g_object_get_data(G_OBJECT(parentWindow), "braya-window-instance");
@@ -1678,4 +1985,177 @@ void BrayaWindow::refreshBookmarksBar() {
     } else {
         std::cerr << "ERROR: Could not find GtkBox widget in bookmarks bar!" << std::endl;
     }
+}
+
+// Extension buttons
+void BrayaWindow::createExtensionButtons() {
+    updateExtensionButtons();
+}
+
+void BrayaWindow::updateExtensionButtons() {
+    if (!extensionButtonsBox || !extensionManager) {
+        return;
+    }
+
+    std::cout << "🔌 Updating extension buttons..." << std::endl;
+
+    // Clear existing buttons
+    GtkWidget* child = gtk_widget_get_first_child(extensionButtonsBox);
+    while (child) {
+        GtkWidget* next = gtk_widget_get_next_sibling(child);
+        gtk_box_remove(GTK_BOX(extensionButtonsBox), child);
+        child = next;
+    }
+
+    // Get loaded extensions
+    auto extensions = extensionManager->getWebExtensions();
+
+    for (auto* extension : extensions) {
+        if (!extension || !extension->isEnabled()) {
+            continue;
+        }
+
+        BrowserAction browserAction = extension->getBrowserAction();
+
+        // Skip if no browser_action defined
+        if (browserAction.default_title.empty() && browserAction.default_icon.empty()) {
+            continue;
+        }
+
+        std::cout << "  → Creating button for: " << extension->getName() << std::endl;
+
+        GtkWidget* btn = gtk_button_new();
+
+        // Load actual extension icon
+        if (!browserAction.default_icon.empty()) {
+            std::string iconPath = extension->getPath() + "/" + browserAction.default_icon;
+            std::cout << "    Loading icon from: " << iconPath << std::endl;
+
+            GError* error = nullptr;
+            GdkPixbuf* pixbuf = gdk_pixbuf_new_from_file_at_scale(iconPath.c_str(), 16, 16, TRUE, &error);
+
+            if (pixbuf) {
+                GtkWidget* iconImage = gtk_image_new_from_pixbuf(pixbuf);
+                gtk_button_set_child(GTK_BUTTON(btn), iconImage);
+                g_object_unref(pixbuf);
+                std::cout << "    ✓ Icon loaded successfully" << std::endl;
+            } else {
+                if (error) {
+                    std::cerr << "    ✗ Failed to load icon: " << error->message << std::endl;
+                    g_error_free(error);
+                }
+                // Fallback to emoji if icon loading fails
+                gtk_button_set_label(GTK_BUTTON(btn), "🧩");
+            }
+        } else {
+            // No icon specified, use emoji
+            gtk_button_set_label(GTK_BUTTON(btn), "🧩");
+        }
+
+        // Set tooltip
+        std::string tooltip = browserAction.default_title.empty() ?
+                             extension->getName() : browserAction.default_title;
+        gtk_widget_set_tooltip_text(btn, tooltip.c_str());
+        gtk_widget_add_css_class(btn, "extension-btn");
+        gtk_widget_add_css_class(btn, "action-btn");
+
+        // Store extension ID in button
+        g_object_set_data_full(G_OBJECT(btn), "extension-id",
+                               g_strdup(extension->getId().c_str()), g_free);
+        g_object_set_data(G_OBJECT(btn), "window", this);
+
+        // Connect click handler
+        g_signal_connect(btn, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+            BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(button), "window"));
+            const char* extensionId = (const char*)g_object_get_data(G_OBJECT(button), "extension-id");
+
+            if (!window || !window->extensionManager || !extensionId) {
+                return;
+            }
+
+            auto* extension = window->extensionManager->getWebExtension(extensionId);
+            if (!extension) {
+                return;
+            }
+
+            BrowserAction action = extension->getBrowserAction();
+            std::cout << "🔌 Extension button clicked: " << extension->getName() << std::endl;
+
+            // If there's a popup, show it
+            if (!action.default_popup.empty()) {
+                std::cout << "  Opening popup: " << action.default_popup << std::endl;
+
+                // Create popup window
+                GtkWidget* popupWindow = gtk_window_new();
+                gtk_window_set_title(GTK_WINDOW(popupWindow), extension->getName().c_str());
+                gtk_window_set_default_size(GTK_WINDOW(popupWindow), 400, 600);
+                gtk_window_set_transient_for(GTK_WINDOW(popupWindow), GTK_WINDOW(window->window));
+                gtk_window_set_modal(GTK_WINDOW(popupWindow), TRUE);
+
+                // Get the WebKit context from the extension manager
+                WebKitWebContext* context = window->extensionManager->getWebContext();
+
+                // Create WebView with the same context as main browser
+                WebKitWebView* popupView;
+                if (context) {
+                    popupView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                                                              "web-context", context,
+                                                              nullptr));
+                    std::cout << "  ✓ Created popup WebView with extension context" << std::endl;
+                } else {
+                    popupView = WEBKIT_WEB_VIEW(webkit_web_view_new());
+                    std::cout << "  ⚠️  Created popup WebView with default context" << std::endl;
+                }
+
+                // Enable JavaScript and other necessary features
+                WebKitSettings* settings = webkit_web_view_get_settings(popupView);
+                webkit_settings_set_enable_javascript(settings, TRUE);
+                webkit_settings_set_enable_write_console_messages_to_stdout(settings, TRUE);
+                webkit_settings_set_allow_file_access_from_file_urls(settings, TRUE);
+                webkit_settings_set_allow_universal_access_from_file_urls(settings, TRUE);
+
+                // Inject browser APIs using UserScript to guarantee it runs BEFORE page scripts
+                std::cout << "  → Setting up API injection for popup..." << std::endl;
+
+                // Get the extension API JavaScript
+                std::string apiScript = BrayaExtensionAPI::getBackgroundPageAPI();
+
+                // Create a user script that will inject at document start (before any page content)
+                WebKitUserContentManager* popupContentManager = webkit_web_view_get_user_content_manager(popupView);
+                WebKitUserScript* userScript = webkit_user_script_new(
+                    apiScript.c_str(),
+                    WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+                    WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,  // CRITICAL: Inject BEFORE page scripts
+                    nullptr,  // Allow list (nullptr = all pages)
+                    nullptr   // Block list
+                );
+
+                webkit_user_content_manager_add_script(popupContentManager, userScript);
+                webkit_user_script_unref(userScript);
+
+                std::cout << "  ✓ Browser APIs will inject at document start (before page scripts)" << std::endl;
+
+                // Load popup HTML
+                std::string popupPath = extension->getPath() + "/" + action.default_popup;
+                std::string popupUri = "file://" + popupPath;
+
+                std::cout << "  Loading popup from: " << popupUri << std::endl;
+                webkit_web_view_load_uri(popupView, popupUri.c_str());
+
+                // Add to window
+                GtkWidget* scrolled = gtk_scrolled_window_new();
+                gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), GTK_WIDGET(popupView));
+                gtk_window_set_child(GTK_WINDOW(popupWindow), scrolled);
+
+                gtk_window_present(GTK_WINDOW(popupWindow));
+            } else {
+                // No popup - just trigger the extension
+                std::cout << "  No popup defined for this extension" << std::endl;
+            }
+        }), nullptr);
+
+        gtk_box_append(GTK_BOX(extensionButtonsBox), btn);
+    }
+
+    std::cout << "✓ Extension buttons updated (" << extensions.size() << " extensions)" << std::endl;
 }

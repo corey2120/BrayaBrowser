@@ -72,19 +72,45 @@ std::vector<Bookmark> BrayaBookmarks::searchBookmarks(const std::string& query) 
     std::vector<Bookmark> results;
     std::string lowerQuery = query;
     std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(), ::tolower);
-    
+
     for (const auto& bookmark : bookmarks) {
         std::string lowerName = bookmark.name;
         std::string lowerUrl = bookmark.url;
         std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
         std::transform(lowerUrl.begin(), lowerUrl.end(), lowerUrl.begin(), ::tolower);
-        
+
         if (lowerName.find(lowerQuery) != std::string::npos ||
             lowerUrl.find(lowerQuery) != std::string::npos) {
             results.push_back(bookmark);
         }
     }
     return results;
+}
+
+std::vector<std::string> BrayaBookmarks::getUniqueFolders() {
+    std::vector<std::string> folders;
+
+    // Add default folders first
+    folders.push_back("Bookmarks Bar");
+
+    // Collect unique folders from existing bookmarks
+    for (const auto& bookmark : bookmarks) {
+        if (!bookmark.folder.empty() && bookmark.folder != "Bookmarks Bar") {
+            // Check if folder already in list
+            bool found = false;
+            for (const auto& existing : folders) {
+                if (existing == bookmark.folder) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                folders.push_back(bookmark.folder);
+            }
+        }
+    }
+
+    return folders;
 }
 
 void BrayaBookmarks::saveToFile() {
@@ -324,10 +350,23 @@ void BrayaBookmarks::onAddBookmarkClicked(GtkButton* button, gpointer data) {
     GtkWidget* urlEntry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(urlEntry), "URL");
     gtk_box_append(GTK_BOX(box), urlEntry);
-    
-    GtkWidget* folderEntry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(folderEntry), "Folder (optional)");
-    gtk_box_append(GTK_BOX(box), folderEntry);
+
+    // Folder dropdown
+    GtkWidget* folderLabel = gtk_label_new("Folder:");
+    gtk_widget_set_halign(folderLabel, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(box), folderLabel);
+
+    GtkStringList* folderModel = gtk_string_list_new(nullptr);
+    auto folders = bookmarks->getUniqueFolders();
+    for (const auto& folder : folders) {
+        gtk_string_list_append(folderModel, folder.c_str());
+    }
+    gtk_string_list_append(folderModel, "Other Bookmarks");
+    gtk_string_list_append(folderModel, "📁 New Folder...");
+
+    GtkWidget* folderDropdown = gtk_drop_down_new(G_LIST_MODEL(folderModel), nullptr);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(folderDropdown), 0);  // Default to "Bookmarks Bar"
+    gtk_box_append(GTK_BOX(box), folderDropdown);
     
     GtkWidget* btnBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     gtk_box_append(GTK_BOX(box), btnBox);
@@ -339,43 +378,44 @@ void BrayaBookmarks::onAddBookmarkClicked(GtkButton* button, gpointer data) {
     GtkWidget* cancelBtn = gtk_button_new_with_label("Cancel");
     gtk_widget_set_hexpand(cancelBtn, TRUE);
     gtk_box_append(GTK_BOX(btnBox), cancelBtn);
-    
-    g_signal_connect(saveBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
-        GtkWidget** widgets = (GtkWidget**)data;
-        BrayaBookmarks* bookmarks = (BrayaBookmarks*)g_object_get_data(G_OBJECT(btn), "bookmarks");
-        
-        const char* name = gtk_editable_get_text(GTK_EDITABLE(widgets[0]));
-        const char* url = gtk_editable_get_text(GTK_EDITABLE(widgets[1]));
-        const char* folder = gtk_editable_get_text(GTK_EDITABLE(widgets[2]));
-        
-        if (strlen(name) > 0 && strlen(url) > 0) {
-            bookmarks->addBookmark(name, url, folder);
-            bookmarks->refreshBookmarksList();
-        }
-        
-        gtk_window_destroy(GTK_WINDOW(widgets[3]));
-        g_free(widgets);
-    }), nullptr);
-    
+
     GtkWidget** widgets = (GtkWidget**)g_malloc(sizeof(GtkWidget*) * 4);
     widgets[0] = nameEntry;
     widgets[1] = urlEntry;
-    widgets[2] = folderEntry;
+    widgets[2] = folderDropdown;
     widgets[3] = dialog;
     g_object_set_data(G_OBJECT(saveBtn), "bookmarks", bookmarks);
     g_signal_connect(saveBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
         GtkWidget** widgets = (GtkWidget**)data;
         BrayaBookmarks* bookmarks = (BrayaBookmarks*)g_object_get_data(G_OBJECT(btn), "bookmarks");
-        
+
         const char* name = gtk_editable_get_text(GTK_EDITABLE(widgets[0]));
         const char* url = gtk_editable_get_text(GTK_EDITABLE(widgets[1]));
-        const char* folder = gtk_editable_get_text(GTK_EDITABLE(widgets[2]));
-        
+
+        // Get selected folder from dropdown
+        GtkDropDown* dropdown = GTK_DROP_DOWN(widgets[2]);
+        guint selected = gtk_drop_down_get_selected(dropdown);
+        GtkStringList* model = GTK_STRING_LIST(gtk_drop_down_get_model(dropdown));
+        const char* folder = gtk_string_list_get_string(model, selected);
+
+        std::string finalFolder = folder;
+
+        // Handle "New Folder..." option
+        if (g_str_has_prefix(folder, "📁 New Folder")) {
+            GtkWindow* parent = GTK_WINDOW(widgets[3]);
+            std::string customFolder = BrayaBookmarks::showNewFolderDialog(parent);
+            if (!customFolder.empty()) {
+                finalFolder = customFolder;
+            } else {
+                finalFolder = "Other Bookmarks";  // Default if canceled
+            }
+        }
+
         if (strlen(name) > 0 && strlen(url) > 0) {
-            bookmarks->addBookmark(name, url, folder);
+            bookmarks->addBookmark(name, url, finalFolder);
             bookmarks->refreshBookmarksList();
         }
-        
+
         gtk_window_destroy(GTK_WINDOW(widgets[3]));
         g_free(widgets);
     }), widgets);
@@ -420,10 +460,27 @@ void BrayaBookmarks::onEditBookmarkClicked(GtkButton* button, gpointer data) {
     GtkWidget* urlEntry = gtk_entry_new();
     gtk_editable_set_text(GTK_EDITABLE(urlEntry), bm.url.c_str());
     gtk_box_append(GTK_BOX(box), urlEntry);
-    
-    GtkWidget* folderEntry = gtk_entry_new();
-    gtk_editable_set_text(GTK_EDITABLE(folderEntry), bm.folder.c_str());
-    gtk_box_append(GTK_BOX(box), folderEntry);
+
+    // Folder dropdown
+    GtkWidget* folderLabel = gtk_label_new("Folder:");
+    gtk_widget_set_halign(folderLabel, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(box), folderLabel);
+
+    GtkStringList* folderModel = gtk_string_list_new(nullptr);
+    auto folders = bookmarks->getUniqueFolders();
+    guint selectedIndex = 0;
+    for (size_t i = 0; i < folders.size(); i++) {
+        gtk_string_list_append(folderModel, folders[i].c_str());
+        if (folders[i] == bm.folder) {
+            selectedIndex = i;
+        }
+    }
+    gtk_string_list_append(folderModel, "Other Bookmarks");
+    gtk_string_list_append(folderModel, "📁 New Folder...");
+
+    GtkWidget* folderDropdown = gtk_drop_down_new(G_LIST_MODEL(folderModel), nullptr);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(folderDropdown), selectedIndex);
+    gtk_box_append(GTK_BOX(box), folderDropdown);
     
     GtkWidget* btnBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     gtk_box_append(GTK_BOX(box), btnBox);
@@ -439,25 +496,43 @@ void BrayaBookmarks::onEditBookmarkClicked(GtkButton* button, gpointer data) {
     GtkWidget** widgets = (GtkWidget**)g_malloc(sizeof(GtkWidget*) * 4);
     widgets[0] = nameEntry;
     widgets[1] = urlEntry;
-    widgets[2] = folderEntry;
+    widgets[2] = folderDropdown;
     widgets[3] = dialog;
     g_object_set_data(G_OBJECT(saveBtn), "bookmarks", bookmarks);
     g_object_set_data(G_OBJECT(saveBtn), "index", GINT_TO_POINTER(index));
-    
+
     g_signal_connect(saveBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
         GtkWidget** widgets = (GtkWidget**)data;
         BrayaBookmarks* bookmarks = (BrayaBookmarks*)g_object_get_data(G_OBJECT(btn), "bookmarks");
         int index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "index"));
-        
+
         const char* name = gtk_editable_get_text(GTK_EDITABLE(widgets[0]));
         const char* url = gtk_editable_get_text(GTK_EDITABLE(widgets[1]));
-        const char* folder = gtk_editable_get_text(GTK_EDITABLE(widgets[2]));
-        
+
+        // Get selected folder from dropdown
+        GtkDropDown* dropdown = GTK_DROP_DOWN(widgets[2]);
+        guint selected = gtk_drop_down_get_selected(dropdown);
+        GtkStringList* model = GTK_STRING_LIST(gtk_drop_down_get_model(dropdown));
+        const char* folder = gtk_string_list_get_string(model, selected);
+
+        std::string finalFolder = folder;
+
+        // Handle "New Folder..." option
+        if (g_str_has_prefix(folder, "📁 New Folder")) {
+            GtkWindow* parent = GTK_WINDOW(widgets[3]);
+            std::string customFolder = BrayaBookmarks::showNewFolderDialog(parent);
+            if (!customFolder.empty()) {
+                finalFolder = customFolder;
+            } else {
+                finalFolder = "Other Bookmarks";  // Default if canceled
+            }
+        }
+
         if (strlen(name) > 0 && strlen(url) > 0) {
-            bookmarks->editBookmark(index, name, url, folder);
+            bookmarks->editBookmark(index, name, url, finalFolder);
             bookmarks->refreshBookmarksList();
         }
-        
+
         gtk_window_destroy(GTK_WINDOW(widgets[3]));
         g_free(widgets);
     }), widgets);
@@ -506,6 +581,86 @@ void BrayaBookmarks::onCloseClicked(GtkButton* button, gpointer data) {
     }
 }
 
+std::string BrayaBookmarks::showNewFolderDialog(GtkWindow* parent) {
+    std::string result;
+
+    GtkWidget* dialog = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(dialog), "📁 New Folder");
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 350, 150);
+    gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
+    gtk_widget_set_margin_start(box, 20);
+    gtk_widget_set_margin_end(box, 20);
+    gtk_widget_set_margin_top(box, 20);
+    gtk_widget_set_margin_bottom(box, 20);
+    gtk_window_set_child(GTK_WINDOW(dialog), box);
+
+    GtkWidget* label = gtk_label_new("Enter folder name:");
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(box), label);
+
+    GtkWidget* entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "e.g., Work, Personal, Reading");
+    gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
+    gtk_box_append(GTK_BOX(box), entry);
+
+    GtkWidget* btnBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_box_append(GTK_BOX(box), btnBox);
+
+    GtkWidget* cancelBtn = gtk_button_new_with_label("Cancel");
+    gtk_widget_set_hexpand(cancelBtn, TRUE);
+    gtk_box_append(GTK_BOX(btnBox), cancelBtn);
+
+    GtkWidget* createBtn = gtk_button_new_with_label("Create");
+    gtk_widget_set_hexpand(createBtn, TRUE);
+    gtk_widget_add_css_class(createBtn, "suggested-action");
+    gtk_window_set_default_widget(GTK_WINDOW(dialog), createBtn);
+    gtk_box_append(GTK_BOX(btnBox), createBtn);
+
+    // Use a struct to pass data between callbacks and retrieve result
+    struct DialogData {
+        std::string* result;
+        GtkWidget* entry;
+        GtkWidget* dialog;
+        bool completed;
+    };
+
+    DialogData data;
+    data.result = &result;
+    data.entry = entry;
+    data.dialog = dialog;
+    data.completed = false;
+
+    g_signal_connect(createBtn, "clicked", G_CALLBACK(+[](GtkWidget* btn, gpointer user_data) {
+        DialogData* data = (DialogData*)user_data;
+        const char* text = gtk_editable_get_text(GTK_EDITABLE(data->entry));
+        if (strlen(text) > 0) {
+            *data->result = text;
+        }
+        data->completed = true;
+        gtk_window_destroy(GTK_WINDOW(data->dialog));
+    }), &data);
+
+    g_signal_connect(cancelBtn, "clicked", G_CALLBACK(+[](GtkWidget* btn, gpointer user_data) {
+        DialogData* data = (DialogData*)user_data;
+        data->completed = true;
+        gtk_window_destroy(GTK_WINDOW(data->dialog));
+    }), &data);
+
+    // Show dialog and wait for it to close
+    gtk_window_present(GTK_WINDOW(dialog));
+
+    // Run a local event loop until dialog is closed
+    GMainContext* context = g_main_context_default();
+    while (!data.completed) {
+        g_main_context_iteration(context, TRUE);
+    }
+
+    return result;
+}
+
 // Visual Bookmarks Bar Implementation
 
 GtkWidget* BrayaBookmarks::createBookmarksBar() {
@@ -515,14 +670,15 @@ GtkWidget* BrayaBookmarks::createBookmarksBar() {
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
                                    GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
     gtk_widget_set_vexpand(scrolled, FALSE);
+    gtk_widget_set_size_request(scrolled, -1, 32);
     gtk_widget_add_css_class(scrolled, "bookmarks-bar-scroll");
 
-    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
     gtk_widget_add_css_class(box, "visual-bookmarks-bar");
-    gtk_widget_set_margin_start(box, 10);
-    gtk_widget_set_margin_end(box, 10);
-    gtk_widget_set_margin_top(box, 5);
-    gtk_widget_set_margin_bottom(box, 5);
+    gtk_widget_set_margin_start(box, 6);
+    gtk_widget_set_margin_end(box, 6);
+    gtk_widget_set_margin_top(box, 0);
+    gtk_widget_set_margin_bottom(box, 0);
 
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), box);
 

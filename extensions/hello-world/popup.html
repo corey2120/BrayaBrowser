@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            width: 300px;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 20px;
+        }
+        p {
+            margin: 0 0 15px 0;
+            font-size: 14px;
+        }
+        button {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hello World!</h1>
+    <p>This is a test extension popup.</p>
+    <button id="greetBtn">Click Me!</button>
+
+    <script>
+        document.getElementById('greetBtn').addEventListener('click', function() {
+            alert('Hello from the extension popup!');
+        });
+
+        console.log('Popup loaded successfully!');
+    </script>
+</body>
+</html>

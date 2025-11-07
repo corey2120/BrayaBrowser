@@ -14,6 +14,7 @@ class BrayaDownloads;
 class BrayaBookmarks;
 class TabGroup;
 class BrayaPasswordManager;
+class BrayaExtensionManager;
 
 class BrayaWindow {
 public:
@@ -69,6 +70,8 @@ private:
     void createNavbar();
     void createBookmarksBar();
     void createStatusBar();
+    void createExtensionButtons();
+    void updateExtensionButtons();
     
     // UI Components
     GtkWidget* window;
@@ -88,6 +91,7 @@ private:
     GtkWidget* findMatchLabel;
     GtkWidget* statusLabel;
     GtkWidget* tabStack;
+    GtkWidget* extensionButtonsBox;
     
     GtkCssProvider* cssProvider;
     
@@ -108,7 +112,8 @@ private:
     std::unique_ptr<BrayaDownloads> downloads;
     std::unique_ptr<BrayaBookmarks> bookmarksManager;
     std::unique_ptr<BrayaPasswordManager> passwordManager;
-    
+    std::unique_ptr<BrayaExtensionManager> extensionManager;
+
     // Password Manager
     void showPasswordManager();
     

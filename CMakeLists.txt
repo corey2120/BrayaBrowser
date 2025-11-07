@@ -6,15 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
                                                                                                                                                    
 # Find required packages                                                                                                                           
 find_package(PkgConfig REQUIRED)                                                                                                                   
-pkg_check_modules(GTK4 REQUIRED gtk4)                                                                                                              
+pkg_check_modules(GTK4 REQUIRED gtk4)
 pkg_check_modules(WEBKIT REQUIRED webkitgtk-6.0)
-pkg_check_modules(OPENSSL REQUIRED openssl)                                                                                                   
+pkg_check_modules(OPENSSL REQUIRED openssl)
+pkg_check_modules(JSON_GLIB REQUIRED json-glib-1.0)                                                                                                   
                                                                                                                                                    
 # Include directories                                                                                                                              
-include_directories(                                                                                                                               
-    ${GTK4_INCLUDE_DIRS}                                                                                                                           
+include_directories(
+    ${GTK4_INCLUDE_DIRS}
     ${WEBKIT_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIRS}
+    ${JSON_GLIB_INCLUDE_DIRS}
 )                                                                                                                                                  
                                                                                                                                                    
 # Link directories                                                                                                                                 
@@ -34,21 +36,42 @@ set(SOURCES
     src/BrayaBookmarks.cpp                                                                                                                         
     src/TabGroup.cpp                                                                                                                               
     src/BrayaCustomization.cpp                                                                                                                     
-    src/BrayaPasswordManager.cpp                                                                                                                   
-)                                                                                                                                                  
+    src/BrayaPasswordManager.cpp
+    src/extensions/BrayaExtensionManager.cpp
+    src/extensions/BrayaWebExtension.cpp
+    src/extensions/BackgroundPageRunner.cpp
+    src/extensions/BrayaExtensionAPI.cpp
+    src/extensions/ExtensionInstaller.cpp
+)
+
+# Web extension source files (separate shared library)
+set(WEB_EXTENSION_SOURCES
+    src/extensions/web-extension/BrayaWebExtension.cpp
+)
+
+# Main executable
+add_executable(braya-browser ${SOURCES})
+
+# Web extension shared library
+add_library(braya-web-extension SHARED ${WEB_EXTENSION_SOURCES})                                                                                                           
                                                                                                                                                    
-# Executable                                                                                                                                       
-add_executable(braya-browser ${SOURCES})                                                                                                           
-                                                                                                                                                   
-# Link libraries                                                                                                                                   
-target_link_libraries(braya-browser                                                                                                                
-    ${GTK4_LIBRARIES}                                                                                                                              
+# Link libraries for main browser
+target_link_libraries(braya-browser
+    ${GTK4_LIBRARIES}
     ${WEBKIT_LIBRARIES}
     ${OPENSSL_LIBRARIES}
+    ${JSON_GLIB_LIBRARIES}
+)
+
+# Link libraries for web extension
+target_link_libraries(braya-web-extension
+    ${WEBKIT_LIBRARIES}
+    ${GTK4_LIBRARIES}
 )                                                                                                                                                  
                                                                                                                                                    
-# Install targets                                                                                                                                  
-install(TARGETS braya-browser DESTINATION bin)                                                                                                     
+# Install targets
+install(TARGETS braya-browser DESTINATION bin)
+install(TARGETS braya-web-extension DESTINATION lib/braya-browser/web-extensions)                                                                                                     
                                                                                                                                                    
 # Install resources                                                                                                                                
 install(FILES resources/style.css DESTINATION share/braya-browser/resources)                                                                       
