@@ -198,6 +198,46 @@ headerbar.titlebar * {
     transition: all 0.2s ease;
 }
 
+/* Settings refresh */
+.settings-card {
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(10, 15, 20, 0.9);
+}
+
+.settings-row {
+    padding: 6px 0;
+}
+
+.settings-row-title {
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.settings-row-subtitle {
+    color: rgba(226, 232, 240, 0.65);
+    font-size: 12px;
+}
+
+.navigation-sidebar row:selected {
+    background: rgba(0, 217, 255, 0.12);
+    border-radius: 12px;
+}
+
+.pill {
+    border-radius: 999px;
+    padding: 6px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+}
+
+.pill:hover {
+    border-color: rgba(0, 217, 255, 0.4);
+    background: rgba(0, 217, 255, 0.12);
+    color: #00d9ff;
+}
+
 .settings-btn:hover {
     background: rgba(0, 217, 255, 0.15);
     color: #00d9ff;
@@ -308,6 +348,59 @@ separator {
     margin: 0 10px;
 }
 
+/* Dialog polish */
+.braya-dialog {
+    background: #101722;
+    border-radius: 18px;
+}
+
+.dialog-header {
+    padding: 8px 14px;
+    background: transparent;
+}
+
+.dialog-header-title {
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.dialog-body {
+    padding: 18px;
+}
+
+.warning-banner {
+    background: rgba(255, 196, 0, 0.12);
+    border: 1px solid rgba(255, 196, 0, 0.4);
+    border-radius: 12px;
+    padding: 10px 12px;
+    color: #fcd34d;
+}
+
+.dialog-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 14px;
+}
+
+.dialog-search {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 8px 12px;
+}
+
+.dialog-action-bar {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 12px;
+    margin-top: 8px;
+}
+
+.password-list row {
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
 
 /* Visual Bookmarks Bar - Chrome/Firefox Style */
 .visual-bookmarks-bar {
@@ -353,6 +446,92 @@ separator {
 .bookmark-add-btn:hover {
     opacity: 1;
     background: rgba(0, 0, 0, 0.06);
+}
+
+/* Bookmark Folders */
+.bookmark-folder {
+    position: relative;
+}
+
+.bookmark-folder popover {
+    padding: 0;
+    margin-top: 4px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: white;
+}
+
+.folder-menu {
+    padding: 4px 0;
+    min-width: 180px;
+}
+
+.folder-menu-item {
+    padding: 6px 12px;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    color: #202124;
+    font-size: 13px;
+    text-align: left;
+    width: 100%;
+    transition: background 0.1s ease;
+}
+
+.folder-menu-item:hover {
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.folder-menu-item:active {
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.folder-menu-item label {
+    flex: 1;
+}
+
+/* Bookmark Subfolders (cascading menus) */
+.bookmark-subfolder {
+    padding: 6px 12px;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    text-align: left;
+}
+
+.bookmark-subfolder:hover {
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.bookmark-subfolder popover {
+    margin-left: 4px;
+}
+
+/* Drag and Drop states */
+.bookmark-bar-item.dragging {
+    opacity: 0.4;
+}
+
+.bookmark-bar-item.drop-target {
+    border: 2px solid #1a73e8;
+    background: rgba(26, 115, 232, 0.1);
+}
+
+.bookmark-folder.dragging {
+    opacity: 0.4;
+}
+
+.bookmark-folder.drop-target {
+    border: 2px solid #1a73e8;
+    background: rgba(26, 115, 232, 0.15);
+}
+
+/* Empty folder placeholder */
+.dim-label {
+    opacity: 0.5;
+    font-size: 12px;
+    font-style: italic;
 }
 
 /* Speed Dial */

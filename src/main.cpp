@@ -54,7 +54,7 @@ int main(int argc, char** argv) {
     g_print("GTK Application created\n");
     
     // Set default application icon
-    gtk_window_set_default_icon_name("braya-browser");
+    gtk_window_set_default_icon_name("dev.braya.BrayaBrowser");
     
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
     g_print("Activate signal connected\n");

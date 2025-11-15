@@ -30,33 +30,64 @@ std::string BrayaDownloads::formatFileSize(guint64 bytes) {
     return oss.str();
 }
 
+int BrayaDownloads::getActiveDownloadCount() const {
+    int count = 0;
+    for (const auto& item : downloads) {
+        if (!item.completed && !item.failed) {
+            count++;
+        }
+    }
+    return count;
+}
+
 void BrayaDownloads::handleDownload(WebKitDownload* download) {
     DownloadItem item;
     item.download = download;
     item.url = webkit_uri_request_get_uri(webkit_download_get_request(download));
     item.startTime = std::time(nullptr);
-    
+
     g_object_ref(download);
-    
+
     // Connect signals
     g_signal_connect(download, "decide-destination", G_CALLBACK(onDownloadDecideDestination), this);
     g_signal_connect(download, "received-data", G_CALLBACK(onDownloadReceived), this);
     g_signal_connect(download, "finished", G_CALLBACK(onDownloadFinished), this);
     g_signal_connect(download, "failed", G_CALLBACK(onDownloadFailed), this);
-    
+
     downloads.push_back(item);
-    
+
     std::cout << "Download started: " << item.url << std::endl;
+
+    // Notify callback of new active download
+    if (downloadStatusCallback) {
+        downloadStatusCallback(getActiveDownloadCount());
+    }
 }
 
 void BrayaDownloads::onDownloadDecideDestination(WebKitDownload* download, const gchar* suggested_filename, gpointer data) {
     BrayaDownloads* downloads = static_cast<BrayaDownloads*>(data);
-    
+
+    if (!suggested_filename || strlen(suggested_filename) == 0) {
+        std::cerr << "✗ No filename suggested for download" << std::endl;
+        return;
+    }
+
     std::string downloadsPath = downloads->getDownloadsPath();
-    std::string destination = "file://" + downloadsPath + "/" + suggested_filename;
-    
-    webkit_download_set_destination(download, destination.c_str());
-    
+
+    // Ensure we have a valid downloads path
+    if (downloadsPath.empty()) {
+        downloadsPath = std::string(g_get_home_dir()) + "/Downloads";
+        std::cout << "⚠️  Downloads directory not found, using: " << downloadsPath << std::endl;
+    }
+
+    // Build absolute file path
+    std::string filePath = downloadsPath + "/" + std::string(suggested_filename);
+
+    std::cout << "📥 Download destination: " << filePath << std::endl;
+
+    // WebKit expects an absolute file path, not a file:// URI
+    webkit_download_set_destination(download, filePath.c_str());
+
     // Update our list
     for (auto& item : downloads->downloads) {
         if (item.download == download) {
@@ -64,8 +95,6 @@ void BrayaDownloads::onDownloadDecideDestination(WebKitDownload* download, const
             break;
         }
     }
-    
-    std::cout << "Download destination: " << destination << std::endl;
 }
 
 void BrayaDownloads::onDownloadReceived(WebKitDownload* download, guint64 data_length, gpointer user_data) {
@@ -75,7 +104,7 @@ void BrayaDownloads::onDownloadReceived(WebKitDownload* download, guint64 data_l
 
 void BrayaDownloads::onDownloadFinished(WebKitDownload* download, gpointer user_data) {
     BrayaDownloads* downloads = static_cast<BrayaDownloads*>(user_data);
-    
+
     for (auto& item : downloads->downloads) {
         if (item.download == download) {
             item.completed = true;
@@ -84,13 +113,18 @@ void BrayaDownloads::onDownloadFinished(WebKitDownload* download, gpointer user_
             break;
         }
     }
-    
+
     downloads->updateDownloadProgress(download);
+
+    // Notify callback of download completion
+    if (downloads->downloadStatusCallback) {
+        downloads->downloadStatusCallback(downloads->getActiveDownloadCount());
+    }
 }
 
 void BrayaDownloads::onDownloadFailed(WebKitDownload* download, GError* error, gpointer user_data) {
     BrayaDownloads* downloads = static_cast<BrayaDownloads*>(user_data);
-    
+
     for (auto& item : downloads->downloads) {
         if (item.download == download) {
             item.failed = true;
@@ -98,8 +132,13 @@ void BrayaDownloads::onDownloadFailed(WebKitDownload* download, GError* error, g
             break;
         }
     }
-    
+
     downloads->updateDownloadProgress(download);
+
+    // Notify callback of download failure
+    if (downloads->downloadStatusCallback) {
+        downloads->downloadStatusCallback(downloads->getActiveDownloadCount());
+    }
 }
 
 void BrayaDownloads::updateDownloadProgress(WebKitDownload* download) {

@@ -55,6 +55,10 @@ private:
     void setupWebContext();
     void createExtensionDirectory();
     std::string getExtensionDirectory() const;
+
+    // URI scheme handler for chrome-extension:// protocol
+    static void onChromeExtensionURISchemeRequest(WebKitURISchemeRequest* request, gpointer user_data);
+    static const char* getMimeType(const std::string& path);
 };
 
 #endif // BRAYA_EXTENSION_MANAGER_H

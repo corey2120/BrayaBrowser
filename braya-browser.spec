@@ -1,6 +1,6 @@
 Name:           braya-browser
-Version:        1.0.1
-Release:        0.16.beta16%{?dist}
+Version:        1.0.6
+Release:        1%{?dist}
 Summary:        A modern, highly customizable web browser built with C++ and WebKit
 License:        MIT
 URL:            https://github.com/corey2120/BrayaBrowser
@@ -11,20 +11,24 @@ BuildRequires:  cmake >= 3.10
 BuildRequires:  gtk4-devel
 BuildRequires:  webkit2gtk4.1-devel
 BuildRequires:  openssl-devel
+BuildRequires:  libsodium-devel
 BuildRequires:  pkgconfig
 
 Requires:       gtk4
 Requires:       webkit2gtk4.1
 Requires:       openssl-libs
+Requires:       libsodium
 
 %description
 Braya Browser is a cutting-edge web browser featuring:
 - WebKit rendering engine for fast, modern web standards
 - Vivaldi-level customization with 60+ appearance options
+- Built-in ad-blocker with custom rules and filter lists
+- Advanced password manager with generator and auto-fill
 - Tab groups and organization
 - Built-in bookmarks, history, and download management
-- Advanced password manager with auto-fill/auto-save
-- Bitwarden integration and CSV import/export
+- Password strength indicator and secure generation
+- CSV import/export support for passwords
 - Multiple theme support (Dark, Light, Industrial)
 - Advanced privacy and security settings
 - Native GTK4 interface for Linux
@@ -110,6 +114,7 @@ fi
 %{_bindir}/braya-browser
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/*/apps/braya-browser.*
+%{_datadir}/icons/hicolor/*/apps/dev.braya.BrayaBrowser.png
 %{_datadir}/%{name}/
 /usr/lib/%{name}/web-extensions/libbraya-web-extension.so
 
@@ -122,6 +127,82 @@ fi
 /usr/bin/update-desktop-database &>/dev/null || :
 
 %changelog
+* Fri Nov 15 2024 Corey O'Brien <corey@braya.dev> - 1.0.6-1
+- Version 1.0.6 release - Password Manager Polish & UX Refinements
+- NEW: 3-panel password manager layout (filters, list, detail view)
+- NEW: Detail pane with full password information and Edit/Delete buttons
+- NEW: Keyboard navigation in autofill dropdown (Up/Down/Enter/Esc)
+- NEW: Multi-step login capture with toggle in settings
+- NEW: Password mismatch warnings when saved password differs
+- NEW: View button in autofill toasts to open password manager
+- NEW: Timestamp display in save dialogs (relative time)
+- NEW: Tab preview debouncing with 400ms delay and settings toggle
+- FIXED: Password manager detail pane now shows in separate right panel
+- FIXED: Long URLs wrap properly in detail pane (no window expansion)
+- FIXED: Detail pane scrolling for overflow content (max width 450px)
+- FIXED: Search functionality in password manager
+- FIXED: Import/Export buttons work in Settings dialog
+- FIXED: Iframe autofill positioning (absolute coordinates)
+- IMPROVED: Fixed-width panels prevent layout expansion (list 400px, detail 320-450px)
+- IMPROVED: Visual consistency with scrollable containers
+- IMPROVED: Tab hover preview performance and responsiveness
+- TECHNICAL: Child widget data access from GtkListBoxRow
+- TECHNICAL: Scrolled window with max-content-width constraint
+- TECHNICAL: Label wrapping with PANGO_WRAP_WORD_CHAR
+- All password manager UX improvements from v1.0.6 roadmap completed
+
+* Thu Nov 14 2024 Corey O'Brien <corey@braya.dev> - 1.0.5-1
+- Version 1.0.5 release - UX Improvements & Password Manager Relocation
+- NEW: Password manager relocated to Settings→Passwords tab (Ctrl+P shortcut)
+- NEW: Links now open in new tabs by default (modern browser behavior)
+- NEW: Middle-click and Ctrl+Click support for opening links in new tabs
+- NEW: Removed password manager button from sidebar (cleaner UI)
+- FIXED: Password save dialog now properly sized (400x150, non-resizable)
+- FIXED: Long URLs in password dialog now ellipsized (no more huge dialogs)
+- IMPROVED: Theme enum mapping to handle removed Light theme gracefully
+- REMOVED: Light theme temporarily removed (will be redesigned in v1.0.6)
+- TECHNICAL: WebKit decide-policy signal for link click interception
+- TECHNICAL: New tab callback system for link handling
+- TECHNICAL: Theme dropdown index remapping without breaking saved settings
+- Users with Light theme saved will automatically fallback to Dark theme
+- All password manager and link handling features fully tested
+
+* Wed Nov 13 2024 Corey O'Brien <corey@braya.dev> - 1.0.3-1
+- Version 1.0.3 release - Ad-Blocker & Password Manager Enhancements
+- NEW: Built-in ad-blocker fully functional (Phase 4-5 complete)
+- NEW: Ad-blocker settings dialog with security levels (OFF/MINIMAL/STANDARD/STRICT/CUSTOM)
+- NEW: 8 blocking features (ads, trackers, malware, cryptominers, popups, autoplay, social, NSFW)
+- NEW: Whitelist manager - add/remove trusted domains
+- NEW: Filter list manager - enable/disable EasyList, EasyPrivacy, Malware Domains
+- NEW: Custom blocking rules editor
+- NEW: Ad-blocker statistics dashboard (total blocked, daily, breakdown by type)
+- NEW: Import/Export ad-blocker settings
+- NEW: Shield icon in toolbar showing blocked count
+- NEW: Password generator - cryptographically secure (OpenSSL RAND_bytes)
+- NEW: Password strength indicator - real-time scoring (0-100)
+- NEW: Password search/filter - instant lookup in password manager
+- NEW: Show/Hide password toggle in password dialogs
+- FIXED: Window icon now displays properly in taskbar/window list
+- FIXED: Application icon works for both dev and production app IDs
+- IMPROVED: Password generator with customizable length and character sets
+- IMPROVED: Smart strength scoring (length, variety, patterns, bonuses)
+- IMPROVED: Color-coded strength labels (Very Weak → Strong)
+- IMPROVED: Icon search paths for development builds
+- IMPROVED: Ad-blocker UI with live updates and callbacks
+- TECHNICAL: WebKit content blocking rules compilation
+- TECHNICAL: GTK4 file dialogs for settings import/export
+- TECHNICAL: Icon theme search path management
+- TECHNICAL: Advanced statistics tracking (ads/trackers/malware breakdown)
+- All ad-blocker and password manager features fully integrated and tested
+
+* Thu Nov 07 2024 Corey O'Brien <corey@braya.dev> - 1.0.2-1
+- Version 1.0.2 release - UI refinements
+- IMPROVED: Bookmarks bar flows seamlessly with headerbar (Zen-style)
+- IMPROVED: Cleaner sidebar without extra separators
+- IMPROVED: Removed large add button from bookmarks bar
+- FIXED: Tab favicon display issue
+- IMPROVED: Better visual consistency with modern browser design
+
 * Sun Nov 03 2024 Corey O'Brien <corey@braya.dev> - 1.0.1-0.12.beta12
 - Beta 12 release - Icon and App ID fixes
 - FIXED: Updated all icon sizes with new UpdatedBraya.png design

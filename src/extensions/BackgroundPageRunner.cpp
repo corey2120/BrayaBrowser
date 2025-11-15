@@ -62,10 +62,54 @@ bool BackgroundPageRunner::initialize() {
         webkit_user_content_manager_add_script(contentManager, userScript);
         webkit_user_script_unref(userScript);
 
+        // Inject the extension manifest
+        std::string manifestScript = "window.__extensionManifest = " + m_extension->getManifestJson() + ";";
+        WebKitUserScript* manifestUserScript = webkit_user_script_new(
+            manifestScript.c_str(),
+            WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+            WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+            nullptr,
+            nullptr
+        );
+        webkit_user_content_manager_add_script(contentManager, manifestUserScript);
+        webkit_user_script_unref(manifestUserScript);
+
         std::cout << "  ✓ Browser APIs will inject into background page" << std::endl;
 
-        // Load the background HTML page directly
-        std::string pageUrl = "file://" + m_extension->getPath() + "/" + backgroundPageFile;
+        // CRITICAL: Inject requestIdleCallback polyfill synchronously BEFORE loading page
+        // This ensures it's available before any external scripts load
+        std::string polyfill = R"(
+            if (!self.requestIdleCallback) {
+                self.requestIdleCallback = function(callback, options) {
+                    const start = Date.now();
+                    return setTimeout(function() {
+                        callback({
+                            didTimeout: false,
+                            timeRemaining: function() {
+                                return Math.max(0, 50 - (Date.now() - start));
+                            }
+                        });
+                    }, 1);
+                };
+            }
+            if (!self.cancelIdleCallback) {
+                self.cancelIdleCallback = function(id) { clearTimeout(id); };
+            }
+            if (!window.requestIdleCallback) {
+                window.requestIdleCallback = self.requestIdleCallback;
+                window.cancelIdleCallback = self.cancelIdleCallback;
+            }
+        )";
+        webkit_web_view_evaluate_javascript(m_webView, polyfill.c_str(), -1, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        // Load the background HTML page using chrome-extension:// protocol
+        // Extract numeric ID from extension ID (e.g., "extension_1763035889" -> "1763035889")
+        std::string extensionId = m_extension->getId();
+        size_t underscorePos = extensionId.find('_');
+        std::string numericId = (underscorePos != std::string::npos) ?
+                                extensionId.substr(underscorePos + 1) : extensionId;
+
+        std::string pageUrl = "chrome-extension://" + numericId + "/" + backgroundPageFile;
         std::cout << "  📄 Loading background page: " << pageUrl << std::endl;
         webkit_web_view_load_uri(m_webView, pageUrl.c_str());
     } else {

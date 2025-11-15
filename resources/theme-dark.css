@@ -1,3 +1,51 @@
+/* 🐕 Braya Browser - CSS Variables for Easy Customization */
+
+:root {
+    /* Base colors */
+    --braya-bg-primary: #0a0f14;
+    --braya-bg-secondary: #0f1419;
+    --braya-bg-tertiary: #1a1f26;
+
+    /* Accent color */
+    --braya-accent: #00d9ff;
+    --braya-accent-rgb: 0, 217, 255;
+
+    /* Text colors */
+    --braya-text-primary: #e0e6ed;
+    --braya-text-secondary: #9ca3b0;
+    --braya-text-muted: rgba(156, 163, 176, 0.7);
+
+    /* Border and overlays */
+    --braya-border: rgba(var(--braya-accent-rgb), 0.15);
+    --braya-border-subtle: rgba(var(--braya-accent-rgb), 0.1);
+    --braya-overlay-light: rgba(255, 255, 255, 0.03);
+    --braya-overlay-medium: rgba(255, 255, 255, 0.08);
+    --braya-overlay-heavy: rgba(255, 255, 255, 0.12);
+
+    /* Accent variations */
+    --braya-accent-bg-subtle: rgba(var(--braya-accent-rgb), 0.1);
+    --braya-accent-bg-medium: rgba(var(--braya-accent-rgb), 0.15);
+    --braya-accent-bg-strong: rgba(var(--braya-accent-rgb), 0.25);
+    --braya-accent-border: rgba(var(--braya-accent-rgb), 0.25);
+    --braya-accent-border-strong: rgba(var(--braya-accent-rgb), 0.5);
+
+    /* Shadows and glows */
+    --braya-glow-subtle: 0 0 10px rgba(var(--braya-accent-rgb), 0.2);
+    --braya-glow-medium: 0 0 12px rgba(var(--braya-accent-rgb), 0.3);
+    --braya-glow-strong: 0 0 15px rgba(var(--braya-accent-rgb), 0.5);
+
+    /* Gradients */
+    --braya-sidebar-bg: linear-gradient(180deg, var(--braya-bg-secondary) 0%, var(--braya-bg-primary) 100%);
+    --braya-headerbar-bg: linear-gradient(90deg, var(--braya-bg-secondary) 0%, var(--braya-bg-tertiary) 100%);
+    --braya-statusbar-bg: linear-gradient(90deg, var(--braya-bg-primary) 0%, var(--braya-bg-secondary) 100%);
+
+    /* Special colors */
+    --braya-error: #ff6b6b;
+    --braya-error-bg: rgba(255, 80, 80, 0.15);
+    --braya-error-border: rgba(255, 80, 80, 0.3);
+    --braya-error-bg-hover: rgba(255, 80, 80, 0.85);
+}
+
 /* Rounded window corners */
 window.rounded-window {
     border-radius: 12px;
@@ -13,13 +61,13 @@ window.rounded-window {
 /* 🐕 Braya Browser - Refined Zen Style */
 
 window {
-    background-color: #0a0f14;
+    background-color: var(--braya-bg-primary);
 }
 
 /* Sidebar - ZEN STYLE */
 .sidebar {
-    background: linear-gradient(180deg, #0f1419 0%, #0a0f14 100%);
-    border-right: 1px solid rgba(0, 217, 255, 0.15);
+    background: var(--braya-sidebar-bg);
+    border-right: 1px solid var(--braya-border);
     min-width: 56px;
 }
 
@@ -27,14 +75,14 @@ window {
 .braya-icon {
     font-size: 24px;
     padding: 12px 0;
-    text-shadow: 0 0 15px rgba(0, 217, 255, 0.5);
+    text-shadow: var(--braya-glow-strong);
 }
 
 /* New Tab Button - ZEN SIZE */
 .new-tab-btn {
-    background: rgba(0, 217, 255, 0.1);
-    color: #00d9ff;
-    border: 1px solid rgba(0, 217, 255, 0.25);
+    background: var(--braya-accent-bg-subtle);
+    color: var(--braya-accent);
+    border: 1px solid var(--braya-accent-border);
     border-radius: 8px;
     padding: 8px;
     font-size: 18px;
@@ -45,14 +93,14 @@ window {
 }
 
 .new-tab-btn:hover {
-    background: rgba(0, 217, 255, 0.25);
-    border-color: #00d9ff;
-    box-shadow: 0 0 12px rgba(0, 217, 255, 0.4);
+    background: var(--braya-accent-bg-strong);
+    border-color: var(--braya-accent);
+    box-shadow: var(--braya-glow-medium);
 }
 
 /* Tab Buttons - Clean and simple */
 .tab-button {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--braya-overlay-light);
     border: none;
     border-radius: 10px;
     padding: 0;
@@ -63,25 +111,25 @@ window {
 }
 
 .tab-button:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--braya-overlay-medium);
     transform: translateX(2px);
 }
 
 .tab-button.active {
-    background: rgba(0, 217, 255, 0.15);
-    box-shadow: 0 0 12px rgba(0, 217, 255, 0.3);
+    background: var(--braya-accent-bg-medium);
+    box-shadow: var(--braya-glow-medium);
 }
 
 /* Favicon area - centered */
 .tab-favicon {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--braya-overlay-medium);
     border-radius: 8px;
 }
 
 /* Headerbar / Titlebar - Firefox style COMPACT */
 headerbar.titlebar {
-    background: linear-gradient(90deg, #0f1419 0%, #1a1f26 100%);
-    border-bottom: 1px solid rgba(0, 217, 255, 0.1);
+    background: var(--braya-headerbar-bg);
+    border-bottom: 1px solid var(--braya-border-subtle);
     min-height: 36px;
     padding: 0;
 }
@@ -94,18 +142,18 @@ headerbar.titlebar * {
 /* Navbar boxes */
 .navbar-left {
     margin: 0;
-    padding: 0 4px;
+    padding: 0 2px;
 }
 
 .navbar-right {
     margin: 0;
-    padding: 0 4px;
+    padding: 0 2px;
 }
 
 /* Navigation Buttons - Minimal like Firefox */
 .nav-btn {
     background: transparent;
-    color: #9ca3b0;
+    color: var(--braya-text-secondary);
     border: none;
     border-radius: 4px;
     padding: 4px;
@@ -120,8 +168,8 @@ headerbar.titlebar * {
 }
 
 .nav-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #00d9ff;
+    background: var(--braya-overlay-medium);
+    color: var(--braya-accent);
 }
 
 .nav-btn:disabled {
@@ -131,11 +179,11 @@ headerbar.titlebar * {
 /* URL Entry - Expanding to fill space, Firefox-like */
 .url-entry {
     background: rgba(0, 0, 0, 0.4);
-    color: #e0e6ed;
-    border: 1px solid rgba(0, 217, 255, 0.2);
-    border-radius: 6px;
+    color: var(--braya-text-primary);
+    border: 1px solid var(--braya-border);
+    border-radius: 8px;
     padding: 3px 10px;
-    min-height: 28px;
+    min-height: 26px;
     font-size: 13px;
     font-family: 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
@@ -143,43 +191,45 @@ headerbar.titlebar * {
 }
 
 .url-entry:focus {
-    border-color: #00d9ff;
-    box-shadow: 0 0 0 2px rgba(0, 217, 255, 0.15),
+    border-color: var(--braya-accent);
+    box-shadow: 0 0 0 2px var(--braya-accent-bg-medium),
                 inset 0 1px 4px rgba(0, 0, 0, 0.3);
     background: rgba(0, 0, 0, 0.5);
     outline: none;
 }
 
-/* Bookmarks Bar - Chrome/Firefox Style */
+/* Bookmarks Bar - Seamless flow with headerbar */
 .bookmarks-bar {
-    background: #2b2a33;
-    border-bottom: 1px solid #1c1b22;
-    padding: 4px 12px;
+    background: var(--braya-headerbar-bg);
+    border-bottom: 1px solid var(--braya-border-subtle);
+    padding: 0;
+    margin: 0;
 }
 
 .visual-bookmarks-bar {
-    background: #2b2a33;
+    background: var(--braya-headerbar-bg);
     padding: 0;
-    min-height: 32px;
+    margin: 0;
+    min-height: 28px;
 }
 
 .bookmarks-bar-scroll {
-    background: #2b2a33;
+    background: transparent;
 }
 
 .bookmark-bar-item {
-    padding: 4px 6px;
-    margin: 0 1px;
+    padding: 2px 6px;
+    margin: 0;
     border-radius: 3px;
     background: transparent;
     border: 1px solid transparent;
     font-size: 12px;
-    min-height: 24px;
+    min-height: 22px;
 }
 
 .bookmark-bar-item:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.12);
+    background: var(--braya-overlay-medium);
+    border-color: var(--braya-overlay-heavy);
 }
 
 .bookmark-btn {
@@ -195,25 +245,115 @@ headerbar.titlebar * {
 }
 
 .bookmark-btn:hover {
-    background: rgba(0, 217, 255, 0.12);
-    border-color: rgba(0, 217, 255, 0.3);
-    color: #00d9ff;
-    box-shadow: 0 0 6px rgba(0, 217, 255, 0.2);
+    background: var(--braya-accent-bg-subtle);
+    border-color: var(--braya-accent-border);
+    color: var(--braya-accent);
+    box-shadow: 0 0 6px rgba(var(--braya-accent-rgb), 0.2);
+}
+
+/* Bookmark Folders - Dark Theme */
+.bookmark-folder {
+    position: relative;
+}
+
+.bookmark-folder popover {
+    padding: 0;
+    margin-top: 4px;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--braya-border-subtle);
+    background: var(--braya-bg-secondary);
+}
+
+.folder-menu {
+    padding: 4px 0;
+    min-width: 180px;
+    background: var(--braya-bg-secondary);
+}
+
+.folder-menu-item {
+    padding: 6px 12px;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    color: var(--braya-text-primary);
+    font-size: 13px;
+    text-align: left;
+    width: 100%;
+    transition: background 0.1s ease;
+}
+
+.folder-menu-item:hover {
+    background: var(--braya-overlay-medium);
+}
+
+.folder-menu-item:active {
+    background: var(--braya-overlay-heavy);
+}
+
+.folder-menu-item label {
+    flex: 1;
+    color: var(--braya-text-primary);
+}
+
+/* Bookmark Subfolders (cascading menus) */
+.bookmark-subfolder {
+    padding: 6px 12px;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    text-align: left;
+    color: var(--braya-text-primary);
+}
+
+.bookmark-subfolder:hover {
+    background: var(--braya-overlay-medium);
+}
+
+.bookmark-subfolder popover {
+    margin-left: 4px;
+}
+
+/* Drag and Drop states */
+.bookmark-bar-item.dragging {
+    opacity: 0.4;
+}
+
+.bookmark-bar-item.drop-target {
+    border: 2px solid var(--braya-accent);
+    background: var(--braya-accent-bg-subtle);
+}
+
+.bookmark-folder.dragging {
+    opacity: 0.4;
+}
+
+.bookmark-folder.drop-target {
+    border: 2px solid var(--braya-accent);
+    background: var(--braya-accent-bg-subtle);
+}
+
+/* Empty folder placeholder */
+.dim-label {
+    opacity: 0.5;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--braya-text-muted);
 }
 
 /* Status Bar - Subtle */
 .status-bar {
-    background: linear-gradient(90deg, #0a0f14 0%, #0f1419 100%);
-    border-top: 1px solid rgba(0, 217, 255, 0.1);
+    background: var(--braya-statusbar-bg);
+    border-top: 1px solid var(--braya-border-subtle);
     padding: 4px 12px;
     font-size: 11px;
-    color: rgba(156, 163, 176, 0.7);
+    color: var(--braya-text-muted);
 }
 
 /* Settings Button - Refined */
 .settings-btn {
     background: rgba(255, 255, 255, 0.02);
-    color: #9ca3b0;
+    color: var(--braya-text-secondary);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 8px;
     padding: 8px;
@@ -224,32 +364,32 @@ headerbar.titlebar * {
 }
 
 .settings-btn:hover {
-    background: rgba(0, 217, 255, 0.15);
-    color: #00d9ff;
-    border-color: rgba(0, 217, 255, 0.3);
-    box-shadow: 0 0 10px rgba(0, 217, 255, 0.2);
+    background: var(--braya-accent-bg-medium);
+    color: var(--braya-accent);
+    border-color: var(--braya-accent-border);
+    box-shadow: var(--braya-glow-subtle);
 }
 
 /* Braya Title */
 .braya-title {
     font-size: 10px;
     font-weight: 700;
-    color: #00d9ff;
-    text-shadow: 0 0 10px rgba(0, 217, 255, 0.4);
+    color: var(--braya-accent);
+    text-shadow: 0 0 10px rgba(var(--braya-accent-rgb), 0.4);
     letter-spacing: 1.5px;
     text-transform: uppercase;
 }
 
 /* Separator */
 separator {
-    background: rgba(0, 217, 255, 0.15);
+    background: var(--braya-border);
     min-height: 1px;
 }
 
 /* Additional action buttons - Minimal Clean */
 .action-btn {
     background: transparent;
-    color: #9ca3b0;
+    color: var(--braya-text-secondary);
     border: none;
     border-radius: 4px;
     padding: 4px;
@@ -264,14 +404,14 @@ separator {
 }
 
 .action-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #00d9ff;
+    background: var(--braya-overlay-medium);
+    color: var(--braya-accent);
 }
 
 /* Window control buttons - Using Kora icons */
 .window-btn {
     background: rgba(255, 255, 255, 0.05);
-    color: #9ca3b0;
+    color: var(--braya-text-secondary);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 4px;
     padding: 4px;
@@ -286,15 +426,15 @@ separator {
 }
 
 .window-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--braya-overlay-heavy);
     border-color: rgba(255, 255, 255, 0.3);
     color: #fff;
 }
 
 .window-btn-close {
-    background: rgba(255, 80, 80, 0.15);
-    color: #ff6b6b;
-    border: 1px solid rgba(255, 80, 80, 0.3);
+    background: var(--braya-error-bg);
+    color: var(--braya-error);
+    border: 1px solid var(--braya-error-border);
     border-radius: 4px;
     padding: 4px;
     margin: 0 2px;
@@ -309,7 +449,7 @@ separator {
 }
 
 .window-btn-close:hover {
-    background: rgba(255, 80, 80, 0.85);
+    background: var(--braya-error-bg-hover);
     color: #fff;
     border-color: rgba(255, 80, 80, 0.95);
 }
@@ -323,12 +463,12 @@ separator {
 /* Find Bar */
 .find-bar {
     background: rgba(0, 0, 0, 0.3);
-    border-top: 1px solid rgba(0, 217, 255, 0.2);
+    border-top: 1px solid var(--braya-border);
     padding: 5px;
 }
 
 .find-match-label {
-    color: #9ca3b0;
+    color: var(--braya-text-secondary);
     font-size: 12px;
     margin: 0 10px;
 }
@@ -336,13 +476,13 @@ separator {
 
 /* Settings Dialog Styles */
 .settings-header {
-    background: linear-gradient(90deg, #0f1419 0%, #1a1f26 100%);
-    border-bottom: 1px solid rgba(0, 217, 255, 0.1);
+    background: var(--braya-headerbar-bg);
+    border-bottom: 1px solid var(--braya-border-subtle);
 }
 
 .settings-sidebar {
-    background: linear-gradient(180deg, #0f1419 0%, #0a0f14 100%);
-    border-right: 1px solid rgba(0, 217, 255, 0.15);
+    background: var(--braya-sidebar-bg);
+    border-right: 1px solid var(--braya-border);
 }
 
 .settings-category-btn {
@@ -357,13 +497,13 @@ separator {
 
 .settings-category-btn:hover {
     background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(0, 217, 255, 0.3);
+    border-color: var(--braya-accent-border);
     transform: translateX(3px);
 }
 
 .settings-category-btn.active {
-    background: rgba(0, 217, 255, 0.15);
-    border-color: rgba(0, 217, 255, 0.5);
-    color: #00d9ff;
-    box-shadow: 0 0 10px rgba(0, 217, 255, 0.3);
+    background: var(--braya-accent-bg-medium);
+    border-color: var(--braya-accent-border-strong);
+    color: var(--braya-accent);
+    box-shadow: var(--braya-glow-subtle);
 }

@@ -38,7 +38,25 @@ public:
     void setExtensionInstallCallback(std::function<void(const std::string& url, const std::string& downloadUrl)> callback) {
         extensionInstallCallback = callback;
     }
-    
+
+    // New window/popup callback
+    void setNewWindowCallback(std::function<GtkWidget*(WebKitWebView*)> callback) {
+        newWindowCallback = callback;
+    }
+
+    // New tab callback (for opening links in new tabs)
+    void setNewTabCallback(std::function<void(const std::string& url)> callback) {
+        newTabCallback = callback;
+    }
+
+    // Favicon cache callbacks
+    void setFaviconCacheCallback(std::function<void(const std::string& url, GdkTexture* favicon)> cacheCallback) {
+        faviconCacheCallback = cacheCallback;
+    }
+    void setFaviconGetCallback(std::function<GdkTexture*(const std::string& url)> getCallback) {
+        faviconGetCallback = getCallback;
+    }
+
 private:
     int id;
     std::string title;
@@ -48,6 +66,10 @@ private:
     BrayaPasswordManager* passwordManager;
     BrayaExtensionManager* extensionManager;
     std::function<void(const std::string& url, const std::string& downloadUrl)> extensionInstallCallback;
+    std::function<GtkWidget*(WebKitWebView*)> newWindowCallback;
+    std::function<void(const std::string& url)> newTabCallback;
+    std::function<void(const std::string& url, GdkTexture* favicon)> faviconCacheCallback;
+    std::function<GdkTexture*(const std::string& url)> faviconGetCallback;
 
     // Quick wins state
     bool pinned;
@@ -59,11 +81,15 @@ private:
     GtkWidget* scrolledWindow;
     GtkWidget* tabButton;
     WebKitUserContentManager* userContentManager;
+    GtkWidget* autofillPopover = nullptr;
+    GtkWidget* autofillToast = nullptr;
+    guint toastTimerSource = 0;
 
     void setupPasswordManager();
     void injectPasswordScript();
     void autoFillPasswords();
-    void showAutofillSuggestions();
+    void showAutofillSuggestions(const GdkRectangle* anchorRect = nullptr);
+    void showAutofillToast(const std::string& message, const std::string& url = "", const std::string& username = "");
     void injectExtensionContentScripts(const std::string& pageUrl);
     void setupExtensionDetector();
     void injectExtensionDetectorScript();
@@ -78,6 +104,8 @@ private:
     static void onAutofillRequest(WebKitUserContentManager* manager, JSCValue* value, gpointer userData);
     static void onCheckPasswords(WebKitUserContentManager* manager, JSCValue* value, gpointer userData);
     static void onExtensionInstallRequest(WebKitUserContentManager* manager, JSCValue* value, gpointer userData);
+    static GtkWidget* onCreateNewWindow(WebKitWebView* webView, WebKitNavigationAction* navigation, gpointer userData);
+    static gboolean onDecidePolicy(WebKitWebView* webView, WebKitPolicyDecision* decision, WebKitPolicyDecisionType type, gpointer userData);
 };
 
 #endif // BRAYA_TAB_H

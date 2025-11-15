@@ -2,6 +2,10 @@
 (function() {
     'use strict';
 
+    let stagedUsername = null;
+    let stagedUrl = null;
+    const multiStepEnabled = !(window.BrayaPasswordConfig && window.BrayaPasswordConfig.multiStep === false);
+
     // Helper: Find username field using multiple heuristics
     function findUsernameField(context = document) {
         // Try autocomplete attribute first (Safari standard)
@@ -81,6 +85,12 @@
             submittedForms.add(form);
 
             const fields = getLoginFields(form);
+            if (multiStepEnabled && fields.username && (!fields.password || !fields.password.value)) {
+                stagedUsername = fields.username.value.trim();
+                stagedUrl = window.location.href;
+                return;
+            }
+
             if (fields.username && fields.password && fields.username.value && fields.password.value) {
                 // Delay capture to allow form submission to complete
                 setTimeout(() => {
@@ -124,14 +134,23 @@
 
     // Capture password credentials
     function capturePassword(username, password) {
-        if (!username || !password) return;
+        if (!password) return;
+        let trimmedUser = username ? username.trim() : '';
+        if (!trimmedUser && stagedUsername) {
+            trimmedUser = stagedUsername;
+        }
+        if (!trimmedUser) {
+            trimmedUser = username;
+        }
         
         try {
             window.webkit.messageHandlers.passwordCapture.postMessage({
-                url: window.location.href,
-                username: username.trim(),
+                url: stagedUrl || window.location.href,
+                username: trimmedUser || '',
                 password: password
             });
+            stagedUsername = null;
+            stagedUrl = null;
         } catch (e) {
             console.error('Failed to capture password:', e);
         }
@@ -160,17 +179,52 @@
         return false;
     };
 
+    // Helper: Calculate absolute coordinates for nested iframes
+    function getAbsoluteRect(element) {
+        const rect = element.getBoundingClientRect();
+        let absoluteX = rect.left;
+        let absoluteY = rect.top;
+
+        // Walk up the frame tree to accumulate offsets
+        let currentWindow = window;
+        while (currentWindow !== currentWindow.parent) {
+            try {
+                const frameElement = currentWindow.frameElement;
+                if (frameElement) {
+                    const frameRect = frameElement.getBoundingClientRect();
+                    absoluteX += frameRect.left;
+                    absoluteY += frameRect.top;
+                }
+                currentWindow = currentWindow.parent;
+            } catch (e) {
+                // Cross-origin frame - can't traverse further
+                break;
+            }
+        }
+
+        return {
+            x: absoluteX,
+            y: absoluteY,
+            width: rect.width,
+            height: rect.height
+        };
+    }
+
     // Request autofill suggestions on field focus (Safari-like)
     window.requestAutofillSuggestions = function() {
         const fields = getLoginFields();
-        if (fields.username || fields.password) {
-            try {
-                window.webkit.messageHandlers.autofillRequest.postMessage({
-                    url: window.location.href
-                });
-            } catch (e) {
-                // Handler not registered yet
-            }
+        const anchor = fields.username || fields.password;
+        if (!anchor) return;
+
+        const rect = getAbsoluteRect(anchor);
+
+        try {
+            window.webkit.messageHandlers.autofillRequest.postMessage({
+                url: window.location.href,
+                rect: rect
+            });
+        } catch (e) {
+            // Handler not registered yet
         }
     };
 
@@ -203,8 +257,15 @@
             document.head.appendChild(style);
             
             // Mark fields
-            if (fields.username) fields.username.setAttribute('data-braya-has-password', 'true');
-            if (fields.password) fields.password.setAttribute('data-braya-has-password', 'true');
+            [fields.username, fields.password].forEach(field => {
+                if (!field) return;
+                field.setAttribute('data-braya-has-password', 'true');
+                if (!field.dataset.brayaIndicatorBound) {
+                    field.addEventListener('focus', requestAutofillSuggestions, { capture: true });
+                    field.addEventListener('click', requestAutofillSuggestions, { capture: true });
+                    field.dataset.brayaIndicatorBound = 'true';
+                }
+            });
             
             console.log('✓ Added password indicators');
         }
@@ -256,7 +317,9 @@
     const observer = new MutationObserver(() => {
         const fields = getLoginFields();
         if (fields.password) {
-            setupFocusListeners();
+            requestAutofillSuggestions();
+            checkPasswordsAvailable();
+            addPasswordIndicators();
         }
     });
 

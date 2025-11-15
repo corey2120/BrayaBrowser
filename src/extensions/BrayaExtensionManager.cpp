@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sys/stat.h>
 #include <glib.h>
+#include <libsoup/soup.h>
 
 BrayaExtensionManager::BrayaExtensionManager()
     : m_context(nullptr)
@@ -57,7 +58,14 @@ void BrayaExtensionManager::setupWebContext() {
     GVariant* data = g_variant_builder_end(&builder);
     webkit_web_context_set_web_process_extensions_initialization_user_data(m_context, data);
 
+    // Register chrome-extension:// URI scheme handler
+    webkit_web_context_register_uri_scheme(m_context, "chrome-extension",
+                                          onChromeExtensionURISchemeRequest,
+                                          this,
+                                          nullptr);
+
     std::cout << "✓ WebKit context configured for extensions" << std::endl;
+    std::cout << "✓ Registered chrome-extension:// URI scheme handler" << std::endl;
 }
 
 bool BrayaExtensionManager::loadNativeExtension(const std::string& path) {
@@ -224,4 +232,143 @@ bool BrayaExtensionManager::removeWebExtension(const std::string& id) {
 
     std::cout << "✓ Extension removed successfully" << std::endl;
     return true;
+}
+
+// Get MIME type based on file extension
+const char* BrayaExtensionManager::getMimeType(const std::string& path) {
+    // Find file extension
+    size_t dotPos = path.find_last_of('.');
+    if (dotPos == std::string::npos) {
+        return "application/octet-stream";
+    }
+
+    std::string ext = path.substr(dotPos + 1);
+
+    // Common MIME types
+    if (ext == "html" || ext == "htm") return "text/html";
+    if (ext == "css") return "text/css";
+    if (ext == "js") return "application/javascript";
+    if (ext == "json") return "application/json";
+    if (ext == "png") return "image/png";
+    if (ext == "jpg" || ext == "jpeg") return "image/jpeg";
+    if (ext == "gif") return "image/gif";
+    if (ext == "svg") return "image/svg+xml";
+    if (ext == "wasm") return "application/wasm";  // IMPORTANT for Bitwarden
+    if (ext == "woff") return "font/woff";
+    if (ext == "woff2") return "font/woff2";
+    if (ext == "ttf") return "font/ttf";
+    if (ext == "eot") return "application/vnd.ms-fontobject";
+    if (ext == "xml") return "text/xml";
+    if (ext == "txt") return "text/plain";
+    if (ext == "ico") return "image/x-icon";
+    if (ext == "webp") return "image/webp";
+    if (ext == "webm") return "video/webm";
+    if (ext == "mp4") return "video/mp4";
+    if (ext == "mp3") return "audio/mpeg";
+    if (ext == "ogg") return "audio/ogg";
+    if (ext == "pdf") return "application/pdf";
+    if (ext == "zip") return "application/zip";
+
+    return "application/octet-stream";
+}
+
+// URI scheme handler for chrome-extension:// protocol
+void BrayaExtensionManager::onChromeExtensionURISchemeRequest(WebKitURISchemeRequest* request, gpointer user_data) {
+    BrayaExtensionManager* manager = static_cast<BrayaExtensionManager*>(user_data);
+    const char* uri = webkit_uri_scheme_request_get_uri(request);
+
+    std::cout << "[chrome-extension://] Request: " << uri << std::endl;
+
+    // Parse URI: chrome-extension://EXTENSION_ID/path/to/file.ext
+    std::string uriStr(uri);
+    std::string prefix = "chrome-extension://";
+
+    if (uriStr.find(prefix) != 0) {
+        std::cerr << "[chrome-extension://] ERROR: Invalid URI format" << std::endl;
+        GError* error = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Invalid URI format");
+        webkit_uri_scheme_request_finish_error(request, error);
+        g_error_free(error);
+        return;
+    }
+
+    // Extract extension ID and file path
+    std::string remainder = uriStr.substr(prefix.length());
+    size_t slashPos = remainder.find('/');
+
+    if (slashPos == std::string::npos) {
+        std::cerr << "[chrome-extension://] ERROR: No file path in URI" << std::endl;
+        GError* error = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "No file path");
+        webkit_uri_scheme_request_finish_error(request, error);
+        g_error_free(error);
+        return;
+    }
+
+    std::string extensionId = remainder.substr(0, slashPos);
+    std::string filePath = remainder.substr(slashPos + 1);
+
+    // Build full file path
+    std::string fullPath = manager->m_extensionDirectory + "/extension_" + extensionId + "/" + filePath;
+
+    std::cout << "[chrome-extension://] Loading: " << fullPath << std::endl;
+
+    // Check if file exists
+    GFile* file = g_file_new_for_path(fullPath.c_str());
+    GError* error = nullptr;
+
+    GFileInputStream* stream = g_file_read(file, nullptr, &error);
+
+    if (!stream) {
+        std::cerr << "[chrome-extension://] ERROR: Failed to read file: " << fullPath << std::endl;
+        if (error) {
+            std::cerr << "  Error: " << error->message << std::endl;
+            webkit_uri_scheme_request_finish_error(request, error);
+            g_error_free(error);
+        } else {
+            GError* notFoundError = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "File not found");
+            webkit_uri_scheme_request_finish_error(request, notFoundError);
+            g_error_free(notFoundError);
+        }
+        g_object_unref(file);
+        return;
+    }
+
+    // Get file size
+    GFileInfo* fileInfo = g_file_query_info(file, G_FILE_ATTRIBUTE_STANDARD_SIZE,
+                                            G_FILE_QUERY_INFO_NONE, nullptr, nullptr);
+    goffset contentLength = -1;
+    if (fileInfo) {
+        contentLength = g_file_info_get_size(fileInfo);
+        g_object_unref(fileInfo);
+    }
+
+    // Determine MIME type
+    const char* mimeType = getMimeType(filePath);
+    std::cout << "[chrome-extension://] MIME type: " << mimeType << ", Size: " << contentLength << " bytes" << std::endl;
+
+    // Create response
+    WebKitURISchemeResponse* response = webkit_uri_scheme_response_new(G_INPUT_STREAM(stream), contentLength);
+    webkit_uri_scheme_response_set_content_type(response, mimeType);
+
+    // Set HTTP status code to 200 (required for WebAssembly.instantiateStreaming)
+    webkit_uri_scheme_response_set_status(response, 200, "OK");
+
+    // Set additional headers for WASM files
+    if (std::string(mimeType) == "application/wasm") {
+        SoupMessageHeaders* headers = soup_message_headers_new(SOUP_MESSAGE_HEADERS_RESPONSE);
+        soup_message_headers_append(headers, "Content-Type", "application/wasm");
+        soup_message_headers_append(headers, "X-Content-Type-Options", "nosniff");
+        webkit_uri_scheme_response_set_http_headers(response, headers);
+        soup_message_headers_unref(headers);
+        std::cout << "[chrome-extension://] ✓ Added WASM headers" << std::endl;
+    }
+
+    // Finish request
+    webkit_uri_scheme_request_finish_with_response(request, response);
+
+    // Cleanup
+    g_object_unref(response);
+    g_object_unref(stream);
+    g_object_unref(file);
+
+    std::cout << "[chrome-extension://] ✓ File served successfully" << std::endl;
 }

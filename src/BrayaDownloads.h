@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <functional>
 
 struct DownloadItem {
     WebKitDownload* download;
@@ -25,17 +26,24 @@ class BrayaDownloads {
 public:
     BrayaDownloads();
     ~BrayaDownloads();
-    
+
     void handleDownload(WebKitDownload* download);
     void showDownloadsDialog(GtkWindow* parent);
     void clearCompleted();
-    
+    int getActiveDownloadCount() const;
+
+    // Callback for download status changes
+    void setDownloadStatusCallback(std::function<void(int)> callback) {
+        downloadStatusCallback = callback;
+    }
+
 private:
     std::vector<DownloadItem> downloads;
     GtkWidget* downloadsDialog;
     GtkWidget* downloadsList;
     std::map<WebKitDownload*, GtkWidget*> downloadRows;
-    
+    std::function<void(int)> downloadStatusCallback;
+
     void createDownloadsDialog(GtkWindow* parent);
     void addDownloadToUI(const DownloadItem& item);
     void updateDownloadProgress(WebKitDownload* download);

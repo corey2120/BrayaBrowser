@@ -1,6 +1,7 @@
 #include "BrayaWindow.h"
 #include "BrayaTab.h"
 #include "BrayaSettings.h"
+#include "BrayaCustomization.h"
 #include "BrayaHistory.h"
 #include "BrayaDownloads.h"
 #include "BrayaBookmarks.h"
@@ -10,23 +11,266 @@
 #include "extensions/BrayaWebExtension.h"
 #include "extensions/ExtensionInstaller.h"
 #include "extensions/BrayaExtensionAPI.h"
+#include "adblocker/BrayaAdBlocker.h"
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <cstring>
 #include <ctime>
+#include <vector>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <jsc/jsc.h>
+#include <json-glib/json-glib.h>
+
+// Structs for extension popup IPC
+struct PopupMessageData {
+    BrayaWindow* window;
+    WebKitWebView* popupView;
+    std::string extensionId;
+};
+
+struct PopupResponseCallbackData {
+    WebKitWebView* popupView;
+    int callbackId;
+};
+
+// Static callback for popup message response
+static void on_popup_response_callback(GObject* object, GAsyncResult* result, gpointer user_data) {
+    PopupResponseCallbackData* cbData = static_cast<PopupResponseCallbackData*>(user_data);
+
+    GError* error = nullptr;
+    JSCValue* value = webkit_web_view_evaluate_javascript_finish(
+        WEBKIT_WEB_VIEW(object), result, &error);
+
+    if (value && !error) {
+        char* response = jsc_value_to_json(value, 0);
+
+        // Send response back to popup
+        std::string responseScript = "window.__handleExtensionMessageResponse(" +
+            std::to_string(cbData->callbackId) + ", " + std::string(response) + ");";
+
+        webkit_web_view_evaluate_javascript(cbData->popupView,
+            responseScript.c_str(), -1, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        g_free(response);
+    } else if (error) {
+        std::cerr << "✗ Error evaluating JS: " << error->message << std::endl;
+        g_error_free(error);
+    }
+
+    delete cbData;
+}
+
+// Static callback for popup message handling
+static void on_popup_message_received(WebKitUserContentManager* manager,
+                                       JSCValue* value,
+                                       gpointer user_data) {
+    PopupMessageData* data = static_cast<PopupMessageData*>(user_data);
+
+    if (!value || !jsc_value_is_object(value)) return;
+
+    JSCValue* typeValue = jsc_value_object_get_property(value, "type");
+    if (!typeValue) return;
+
+    char* type = jsc_value_to_string(typeValue);
+    if (!type) return;
+
+    if (strcmp(type, "runtimeSendMessage") == 0) {
+        // Get message details
+        JSCValue* messageValue = jsc_value_object_get_property(value, "message");
+        JSCValue* callbackIdValue = jsc_value_object_get_property(value, "callbackId");
+
+        if (!messageValue || !callbackIdValue) {
+            g_free(type);
+            return;
+        }
+
+        char* messageJson = jsc_value_to_json(messageValue, 0);
+        int callbackId = jsc_value_to_int32(callbackIdValue);
+
+        std::cout << "🔌 Popup message: " << messageJson << std::endl;
+
+        // Get the extension's background page
+        auto* ext = data->window->extensionManager->getWebExtension(data->extensionId);
+        if (ext && ext->getBackgroundPage()) {
+            // Forward message to background page
+            std::string script = "if (window.__messageListeners) { "
+                "window.__messageListeners.forEach(function(listener) { "
+                "listener(" + std::string(messageJson) + ", {}, function(response) { "
+                "console.log('[Background] Sending response:', response); "
+                "}); }); }";
+
+            PopupResponseCallbackData* cbData = new PopupResponseCallbackData{data->popupView, callbackId};
+
+            webkit_web_view_evaluate_javascript(ext->getBackgroundPage(),
+                script.c_str(), -1, nullptr, nullptr, nullptr,
+                on_popup_response_callback, cbData);
+        }
+
+        g_free(messageJson);
+    }
+
+    g_free(type);
+}
+
+// Static callback for extension button clicks
+static void on_extension_button_clicked(GtkButton* button, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(button), "window"));
+    const char* extensionId = (const char*)g_object_get_data(G_OBJECT(button), "extension-id");
+
+    if (!window || !window->extensionManager || !extensionId) {
+        return;
+    }
+
+    auto* extension = window->extensionManager->getWebExtension(extensionId);
+    if (!extension) {
+        return;
+    }
+
+    BrowserAction action = extension->getBrowserAction();
+    std::cout << "🔌 Extension button clicked: " << extension->getName() << std::endl;
+
+    // If there's a popup, show it
+    if (!action.default_popup.empty()) {
+        std::cout << "  Opening popup: " << action.default_popup << std::endl;
+
+        // Create popup window
+        GtkWidget* popupWindow = gtk_window_new();
+        gtk_window_set_title(GTK_WINDOW(popupWindow), extension->getName().c_str());
+        gtk_window_set_default_size(GTK_WINDOW(popupWindow), 400, 600);
+        gtk_window_set_transient_for(GTK_WINDOW(popupWindow), GTK_WINDOW(window->getWindow()));
+        gtk_window_set_modal(GTK_WINDOW(popupWindow), TRUE);
+
+        // Get the WebKit context from the extension manager
+        WebKitWebContext* context = window->extensionManager->getWebContext();
+
+        // Create WebView with the same context as main browser
+        WebKitWebView* popupView;
+        if (context) {
+            popupView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                                                      "web-context", context,
+                                                      nullptr));
+            std::cout << "  ✓ Created popup WebView with extension context" << std::endl;
+        } else {
+            popupView = WEBKIT_WEB_VIEW(webkit_web_view_new());
+            std::cout << "  ⚠️  Created popup WebView with default context" << std::endl;
+        }
+
+        // Enable JavaScript and other necessary features
+        WebKitSettings* settings = webkit_web_view_get_settings(popupView);
+        webkit_settings_set_enable_javascript(settings, TRUE);
+        webkit_settings_set_enable_write_console_messages_to_stdout(settings, TRUE);
+        webkit_settings_set_allow_file_access_from_file_urls(settings, TRUE);
+        webkit_settings_set_allow_universal_access_from_file_urls(settings, TRUE);
+
+        // Inject browser APIs using UserScript to guarantee it runs BEFORE page scripts
+        std::cout << "  → Setting up API injection for popup..." << std::endl;
+
+        // Get the extension API JavaScript (popups use content script API, not background)
+        std::string apiScript = BrayaExtensionAPI::getContentScriptAPI();
+
+        // Create a user script that will inject at document start (before any page content)
+        WebKitUserContentManager* popupContentManager = webkit_web_view_get_user_content_manager(popupView);
+
+        // Add message handler for popup-background IPC
+        PopupMessageData* popupData = new PopupMessageData{window, popupView, extensionId};
+        g_signal_connect(popupContentManager, "script-message-received::extensionMessage",
+                         G_CALLBACK(on_popup_message_received), popupData);
+
+        webkit_user_content_manager_register_script_message_handler(popupContentManager, "extensionMessage", nullptr);
+        WebKitUserScript* userScript = webkit_user_script_new(
+            apiScript.c_str(),
+            WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+            WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,  // CRITICAL: Inject BEFORE page scripts
+            nullptr,  // Allow list (nullptr = all pages)
+            nullptr   // Block list
+        );
+
+        webkit_user_content_manager_add_script(popupContentManager, userScript);
+        webkit_user_script_unref(userScript);
+
+        // Inject the extension manifest
+        std::string manifestScript = "window.__extensionManifest = " + extension->getManifestJson() + ";";
+        WebKitUserScript* manifestUserScript = webkit_user_script_new(
+            manifestScript.c_str(),
+            WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+            WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+            nullptr,
+            nullptr
+        );
+        webkit_user_content_manager_add_script(popupContentManager, manifestUserScript);
+        webkit_user_script_unref(manifestUserScript);
+
+        std::cout << "  ✓ Browser APIs will inject at document start (before page scripts)" << std::endl;
+
+        // CRITICAL: Inject polyfills synchronously BEFORE loading popup
+        // This ensures they're available when extension scripts load
+        std::string polyfill = R"(
+            // Polyfill for requestIdleCallback
+            if (!window.requestIdleCallback) {
+                window.requestIdleCallback = function(callback) {
+                    const start = Date.now();
+                    return setTimeout(function() {
+                        callback({
+                            didTimeout: false,
+                            timeRemaining: function() {
+                                return Math.max(0, 50 - (Date.now() - start));
+                            }
+                        });
+                    }, 1);
+                };
+            }
+            if (!window.cancelIdleCallback) {
+                window.cancelIdleCallback = function(id) { clearTimeout(id); };
+            }
+            // Also set on self for worker-like contexts
+            if (typeof self !== 'undefined') {
+                self.requestIdleCallback = window.requestIdleCallback;
+                self.cancelIdleCallback = window.cancelIdleCallback;
+            }
+        )";
+        webkit_web_view_evaluate_javascript(popupView, polyfill.c_str(), -1, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        // Load popup HTML using chrome-extension:// protocol
+        // Extract numeric ID from extension ID (e.g., "extension_1763035889" -> "1763035889")
+        std::string extensionId = extension->getId();
+        size_t underscorePos = extensionId.find('_');
+        std::string numericId = (underscorePos != std::string::npos) ?
+                                extensionId.substr(underscorePos + 1) : extensionId;
+
+        std::string popupUri = "chrome-extension://" + numericId + "/" + action.default_popup;
+
+        std::cout << "  Loading popup from: " << popupUri << std::endl;
+        webkit_web_view_load_uri(popupView, popupUri.c_str());
+
+        // Add to window
+        GtkWidget* scrolled = gtk_scrolled_window_new();
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), GTK_WIDGET(popupView));
+        gtk_window_set_child(GTK_WINDOW(popupWindow), scrolled);
+
+        gtk_window_present(GTK_WINDOW(popupWindow));
+    } else {
+        // No popup - just trigger the extension
+        std::cout << "  No popup defined for this extension" << std::endl;
+    }
+}
 
 BrayaWindow::BrayaWindow(GtkApplication* app)
     : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), nextGroupId(1),
+      isSplitView(false), splitHorizontal(true), activeTabIndexPane2(-1),
       settings(std::make_unique<BrayaSettings>()),
       history(std::make_unique<BrayaHistory>()),
       downloads(std::make_unique<BrayaDownloads>()),
       bookmarksManager(std::make_unique<BrayaBookmarks>()),
       passwordManager(std::make_unique<BrayaPasswordManager>()),
       extensionManager(std::make_unique<BrayaExtensionManager>()),
+      adBlocker(std::make_unique<BrayaAdBlocker>()),
       cssProvider(nullptr),
       statusLabel(nullptr),
       statusBar(nullptr),
+      tabStack2(nullptr),
+      splitPane(nullptr),
       window(nullptr),
       bookmarksBar(nullptr) {
     
@@ -36,8 +280,50 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     window = gtk_application_window_new(app);
     gtk_window_set_title(GTK_WINDOW(window), "Braya Browser");
     gtk_window_set_default_size(GTK_WINDOW(window), 1400, 900);
-    // Don't set window icon - using emoji in headerbar instead
-    // gtk_window_set_icon_name(GTK_WINDOW(window), "braya-browser");
+
+    // Set window icon (will show in taskbar/window list)
+    // In GTK4, the icon name is used by the window manager
+    GtkIconTheme* icon_theme = gtk_icon_theme_get_for_display(gdk_display_get_default());
+
+    // For development: Add local icon search paths first
+    std::vector<std::string> iconDirs = {
+        "../resources/icons",  // From build directory
+        "resources/icons",     // From project root
+        "/home/cobrien/Projects/braya-browser-cpp/resources/icons"  // Absolute path
+    };
+
+    bool iconPathRegistered = false;
+    for (const auto& iconDir : iconDirs) {
+        struct stat sb;
+        if (stat(iconDir.c_str(), &sb) == 0 && S_ISDIR(sb.st_mode)) {
+            gtk_icon_theme_add_search_path(icon_theme, iconDir.c_str());
+            g_print("✓ Added icon search path: %s\n", iconDir.c_str());
+            iconPathRegistered = true;
+        }
+    }
+    if (!iconPathRegistered) {
+        g_warning("No icon search paths available – falling back to system theme only");
+    }
+
+    // Try setting icon based on application ID first (for development)
+    const char* app_id = g_application_get_application_id(G_APPLICATION(app));
+    bool iconSet = false;
+    if (app_id && gtk_icon_theme_has_icon(icon_theme, app_id)) {
+        gtk_window_set_icon_name(GTK_WINDOW(window), app_id);
+        g_print("✓ Set window icon to application ID: %s\n", app_id);
+        iconSet = true;
+    }
+
+    if (!iconSet && gtk_icon_theme_has_icon(icon_theme, "braya-browser")) {
+        gtk_window_set_icon_name(GTK_WINDOW(window), "braya-browser");
+        g_print("✓ Set window icon to: braya-browser\n");
+        iconSet = true;
+    }
+
+    if (!iconSet) {
+        gtk_window_set_icon_name(GTK_WINDOW(window), "application-x-executable");
+        g_warning("No branded icon found, falling back to generic executable icon");
+    }
 
     // Store BrayaWindow instance pointer on the GTK window for access in callbacks
     g_object_set_data(G_OBJECT(window), "braya-window-instance", this);
@@ -50,12 +336,27 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     settings->setThemeCallback([this](int themeId) {
         this->applyTheme(themeId);
     });
-    
+
+    // Connect download status callback
+    downloads->setDownloadStatusCallback([this](int activeCount) {
+        this->updateDownloadsButton(activeCount);
+    });
+
     // Setup CSS
     setupCSS();
-    
+
     g_print("CSS loaded\n");
-    
+
+    // Apply saved customization theme (colors, presets, etc.)
+    {
+        static BrayaCustomization* customization = nullptr;
+        if (!customization) {
+            customization = new BrayaCustomization();
+        }
+        customization->applyTheme(window);
+        g_print("✓ Applied saved customization theme\n");
+    }
+
     // Build UI
     setupUI();
 
@@ -65,9 +366,23 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     // This ensures web extensions are loaded before web views are created
     WebKitWebContext* context = webkit_web_context_get_default();
     extensionManager->initialize(context);
+    settings->setWebContext(context);
 
     // Pass extension manager to settings so it can manage extensions
     settings->setExtensionManager(extensionManager.get());
+
+    // Initialize ad-blocker
+    adBlocker->initialize();
+    adBlocker->enable();  // Enable by default with STANDARD security level
+
+    // Pass ad-blocker to settings so it can be controlled via UI
+    settings->setAdBlocker(adBlocker.get());
+
+    // Pass password manager to settings so it can be accessed via Passwords tab
+    settings->setPasswordManager(passwordManager.get());
+
+    // Update shield button with current blocked count
+    updateAdBlockerShield();
 
     // Set callback to update extension buttons when extensions are installed/removed
     settings->setExtensionChangeCallback([this]() {
@@ -104,8 +419,12 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     // Update extension buttons in toolbar
     updateExtensionButtons();
 
-    // Create first tab (this will give us access to WebContext)
-    createTab();
+    // Restore previous session, or create first tab if no session exists
+    restoreSession();
+    if (tabs.empty()) {
+        // No saved session - create default tab
+        createTab();
+    }
     
     // Setup download handling using WebKitNetworkSession (WebKitGTK 6.0+)
     // In WebKitGTK 6.0, WebKitWebContext::download-started was removed
@@ -284,11 +603,29 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     GtkEventController* key_controller = gtk_event_controller_key_new();
     g_signal_connect(key_controller, "key-pressed", G_CALLBACK(onKeyPress), this);
     gtk_widget_add_controller(window, key_controller);
-    
+
+    // Connect to close-request signal to save session
+    g_signal_connect(window, "close-request", G_CALLBACK(+[](GtkWindow* win, gpointer data) -> gboolean {
+        BrayaWindow* window = static_cast<BrayaWindow*>(data);
+        window->saveSession();
+        return FALSE;  // Allow window to close
+    }), this);
+
     g_print("Braya window initialization complete!\n");
 }
 
 BrayaWindow::~BrayaWindow() {
+    // Save session before closing
+    saveSession();
+
+    // Clean up favicon cache
+    for (auto& entry : faviconCache) {
+        if (entry.second) {
+            g_object_unref(entry.second);
+        }
+    }
+    faviconCache.clear();
+
     tabs.clear();
 }
 
@@ -366,7 +703,7 @@ void BrayaWindow::loadThemeCSS(const std::string& themePath) {
 
 void BrayaWindow::applyTheme(int themeId) {
     std::string themePath;
-    
+
     switch(themeId) {
         case 0: // DARK
             themePath = getResourcePath("theme-dark.css");
@@ -380,8 +717,63 @@ void BrayaWindow::applyTheme(int themeId) {
         default:
             themePath = getResourcePath("theme-dark.css");
     }
-    
+
     loadThemeCSS(themePath);
+}
+
+// Downloads UI methods
+
+void BrayaWindow::showDownloadsButton() {
+    if (downloadsBtn && GTK_IS_WIDGET(downloadsBtn)) {
+        gtk_widget_set_visible(downloadsBtn, TRUE);
+    }
+}
+
+void BrayaWindow::hideDownloadsButton() {
+    if (downloadsBtn && GTK_IS_WIDGET(downloadsBtn)) {
+        gtk_widget_set_visible(downloadsBtn, FALSE);
+    }
+}
+
+void BrayaWindow::updateDownloadsButton(int activeCount) {
+    if (!downloadsBtn || !GTK_IS_WIDGET(downloadsBtn)) return;
+
+    if (activeCount > 0) {
+        // Show button with count badge
+        showDownloadsButton();
+
+        // Update tooltip with active download count
+        std::string tooltip = "Downloads";
+        if (activeCount == 1) {
+            tooltip += " (1 active download)";
+        } else {
+            tooltip += " (" + std::to_string(activeCount) + " active downloads)";
+        }
+        gtk_widget_set_tooltip_text(downloadsBtn, tooltip.c_str());
+    } else {
+        // Hide button when no active downloads
+        hideDownloadsButton();
+    }
+}
+
+void BrayaWindow::updateAdBlockerShield() {
+    if (!adBlockerShieldBtn || !GTK_IS_WIDGET(adBlockerShieldBtn)) return;
+    if (!adBlocker) return;
+
+    BlockingStats stats = adBlocker->getStats();
+    int totalBlocked = stats.total_blocked;
+
+    // Update button label
+    std::string label = "🛡️ " + std::to_string(totalBlocked);
+    gtk_button_set_label(GTK_BUTTON(adBlockerShieldBtn), label.c_str());
+
+    // Update tooltip
+    std::string tooltip = "Ad-Blocker (" + std::to_string(totalBlocked) + " blocked";
+    if (stats.blocked_today > 0) {
+        tooltip += ", " + std::to_string(stats.blocked_today) + " today";
+    }
+    tooltip += ")";
+    gtk_widget_set_tooltip_text(adBlockerShieldBtn, tooltip.c_str());
 }
 
 void BrayaWindow::setupUI() {
@@ -392,26 +784,50 @@ void BrayaWindow::setupUI() {
     // Create sidebar
     createSidebar();
     gtk_box_append(GTK_BOX(mainBox), sidebar);
-    
-    // Content area
+
+    // Content area (right side)
     contentBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(mainBox), contentBox);
     gtk_widget_set_hexpand(contentBox, TRUE);
     gtk_widget_set_vexpand(contentBox, TRUE);
-    
+
     // Create components
     createNavbar();
     // Don't append navbar - it's in the headerbar now!
-    
+
+    // Bookmark bar at top of content area
     createBookmarksBar();
     gtk_box_append(GTK_BOX(contentBox), bookmarksBar);
-    
-    // Tab stack for web views
+
+    // Create split pane container (GtkPaned)
+    splitPane = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_paned_set_wide_handle(GTK_PANED(splitPane), TRUE);
+    gtk_widget_set_vexpand(splitPane, TRUE);
+
+    // Primary tab stack for web views
     tabStack = gtk_stack_new();
     gtk_stack_set_transition_type(GTK_STACK(tabStack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
     gtk_stack_set_transition_duration(GTK_STACK(tabStack), 150);
-    gtk_box_append(GTK_BOX(contentBox), tabStack);
     gtk_widget_set_vexpand(tabStack, TRUE);
+
+    // Secondary tab stack for split view
+    tabStack2 = gtk_stack_new();
+    gtk_stack_set_transition_type(GTK_STACK(tabStack2), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
+    gtk_stack_set_transition_duration(GTK_STACK(tabStack2), 150);
+    gtk_widget_set_vexpand(tabStack2, TRUE);
+
+    // Set up split pane with both stacks
+    gtk_paned_set_start_child(GTK_PANED(splitPane), tabStack);
+    gtk_paned_set_end_child(GTK_PANED(splitPane), tabStack2);
+    gtk_paned_set_resize_start_child(GTK_PANED(splitPane), TRUE);
+    gtk_paned_set_resize_end_child(GTK_PANED(splitPane), TRUE);
+    gtk_paned_set_shrink_start_child(GTK_PANED(splitPane), FALSE);
+    gtk_paned_set_shrink_end_child(GTK_PANED(splitPane), FALSE);
+
+    // Initially hide the second pane (not in split view mode)
+    gtk_widget_set_visible(tabStack2, FALSE);
+
+    gtk_box_append(GTK_BOX(contentBox), splitPane);
     
     // Find bar (hidden by default)
     findBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
@@ -459,15 +875,7 @@ void BrayaWindow::createSidebar() {
     sidebar = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_size_request(sidebar, 56, -1);  // Zen-like width
     gtk_widget_add_css_class(sidebar, "sidebar");
-    
-    // No dog here - it's in the headerbar
-    
-    // Separator
-    GtkWidget* sep1 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_widget_set_margin_top(sep1, 5);
-    gtk_widget_set_margin_bottom(sep1, 5);
-    gtk_box_append(GTK_BOX(sidebar), sep1);
-    
+
     // Tabs scrolled window
     GtkWidget* tabsScroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(tabsScroll),
@@ -477,13 +885,7 @@ void BrayaWindow::createSidebar() {
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(tabsScroll), tabsBox);
     gtk_box_append(GTK_BOX(sidebar), tabsScroll);
     gtk_widget_set_vexpand(tabsScroll, TRUE);
-    
-    // Bottom separator
-    GtkWidget* sep2 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_widget_set_margin_top(sep2, 5);
-    gtk_widget_set_margin_bottom(sep2, 5);
-    gtk_box_append(GTK_BOX(sidebar), sep2);
-    
+
     // New tab button (compact)
     GtkWidget* newTabBtn = gtk_button_new_with_label("+");
     gtk_widget_set_tooltip_text(newTabBtn, "New Tab (Ctrl+T)");
@@ -491,23 +893,14 @@ void BrayaWindow::createSidebar() {
     g_signal_connect(newTabBtn, "clicked", G_CALLBACK(onNewTabClicked), this);
     gtk_box_append(GTK_BOX(sidebar), newTabBtn);
     
-    // Downloads button above settings
-    GtkWidget* downloadsBtn = gtk_button_new_with_label("📥");
+    // Downloads button - only visible during active downloads
+    downloadsBtn = gtk_button_new_from_icon_name("folder-download-symbolic");
     gtk_widget_set_tooltip_text(downloadsBtn, "Downloads (Ctrl+J)");
     gtk_widget_add_css_class(downloadsBtn, "settings-btn");
     g_signal_connect(downloadsBtn, "clicked", G_CALLBACK(onDownloadsClicked), this);
+    gtk_widget_set_visible(downloadsBtn, FALSE);  // Hidden by default
     gtk_box_append(GTK_BOX(sidebar), downloadsBtn);
-    
-    // Password Manager button
-    GtkWidget* passwordBtn = gtk_button_new_with_label("🔑");
-    gtk_widget_set_tooltip_text(passwordBtn, "Password Manager (Ctrl+K)");
-    gtk_widget_add_css_class(passwordBtn, "settings-btn");
-    g_signal_connect(passwordBtn, "clicked", G_CALLBACK(+[](GtkWidget* w, gpointer data) {
-        BrayaWindow* window = static_cast<BrayaWindow*>(data);
-        window->showPasswordManager();
-    }), this);
-    gtk_box_append(GTK_BOX(sidebar), passwordBtn);
-    
+
     // Settings button at bottom
     GtkWidget* settingsBtn = gtk_button_new_with_label("⚙");
     gtk_widget_set_tooltip_text(settingsBtn, "Settings");
@@ -526,11 +919,11 @@ void BrayaWindow::createNavbar() {
     gtk_window_set_titlebar(GTK_WINDOW(window), headerbar);
     
     // Left side box for all left controls
-    GtkWidget* leftBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    GtkWidget* leftBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(leftBox, "navbar-left");
     gtk_widget_set_halign(leftBox, GTK_ALIGN_START);
 
-    // Sidebar toggle button (like Zen browser)
+    // Sidebar toggle button
     GtkWidget* sidebarToggle = gtk_button_new_from_icon_name("view-left-pane-symbolic");
     gtk_widget_set_tooltip_text(sidebarToggle, "Toggle Sidebar (Ctrl+B)");
     gtk_widget_add_css_class(sidebarToggle, "nav-btn");
@@ -577,12 +970,7 @@ void BrayaWindow::createNavbar() {
     gtk_widget_set_can_focus(homeBtn, FALSE);
     g_signal_connect(homeBtn, "clicked", G_CALLBACK(onHomeClicked), this);
     gtk_box_append(GTK_BOX(leftBox), homeBtn);
-    
-    // Small spacer after home button
-    GtkWidget* spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_size_request(spacer, 6, -1);
-    gtk_box_append(GTK_BOX(leftBox), spacer);
-    
+
     gtk_header_bar_pack_start(GTK_HEADER_BAR(headerbar), leftBox);
     
     // Center: URL entry COMPACT - like Firefox
@@ -590,6 +978,7 @@ void BrayaWindow::createNavbar() {
     gtk_entry_set_placeholder_text(GTK_ENTRY(urlEntry), "Search or enter address");
     gtk_widget_add_css_class(urlEntry, "url-entry");
     gtk_widget_set_hexpand(urlEntry, TRUE);
+    gtk_widget_set_size_request(urlEntry, 600, -1);  // Minimum width to extend more
     g_signal_connect(urlEntry, "activate", G_CALLBACK(onUrlActivate), this);
     
     // Select all text when URL entry gets focus
@@ -629,8 +1018,11 @@ void BrayaWindow::createNavbar() {
     
     // Split view button
     GtkWidget* splitViewBtn = gtk_button_new_from_icon_name("view-dual-symbolic");
-    gtk_widget_set_tooltip_text(splitViewBtn, "Split View (Coming Soon)");
+    gtk_widget_set_tooltip_text(splitViewBtn, "Toggle Split View (Ctrl+Shift+D)");
     gtk_widget_add_css_class(splitViewBtn, "action-btn");
+    g_signal_connect_swapped(splitViewBtn, "clicked", G_CALLBACK(+[](BrayaWindow* win) {
+        win->toggleSplitView();
+    }), this);
     gtk_box_append(GTK_BOX(rightBox), splitViewBtn);
     
     // Developer tools button
@@ -644,6 +1036,14 @@ void BrayaWindow::createNavbar() {
     extensionButtonsBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
     gtk_widget_add_css_class(extensionButtonsBox, "extension-buttons");
     gtk_box_append(GTK_BOX(rightBox), extensionButtonsBox);
+
+    // Ad-Blocker Shield button
+    adBlockerShieldBtn = gtk_button_new_with_label("🛡️ 0");
+    gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad-Blocker (0 blocked)");
+    gtk_widget_add_css_class(adBlockerShieldBtn, "action-btn");
+    gtk_widget_add_css_class(adBlockerShieldBtn, "shield-btn");
+    g_signal_connect(adBlockerShieldBtn, "clicked", G_CALLBACK(onAdBlockerShieldClicked), this);
+    gtk_box_append(GTK_BOX(rightBox), adBlockerShieldBtn);
 
     // Settings button
     GtkWidget* settingsBtn = gtk_button_new_from_icon_name("open-menu-symbolic");
@@ -672,7 +1072,13 @@ void BrayaWindow::createBookmarksBar() {
 
         // Make sure it's visible
         gtk_widget_set_visible(bookmarksBar, TRUE);
-        gtk_widget_set_size_request(bookmarksBar, -1, 38);
+        gtk_widget_set_size_request(bookmarksBar, -1, 28);
+
+        // Set up refresh callback so folder operations can trigger UI updates
+        bookmarksManager->setRefreshCallback([this]() {
+            std::cout << "🔄 Refreshing bookmarks bar from callback..." << std::endl;
+            refreshBookmarksBar();
+        });
 
         // Wire up click handlers for the bookmarks
         // gtk_scrolled_window_get_child returns the child (which might be a viewport)
@@ -774,6 +1180,73 @@ void BrayaWindow::createTab(const char* url) {
         });
     });
 
+    // Set up new window/popup callback (proper WebKitGTK approach)
+    tab->setNewWindowCallback([this](WebKitWebView* related) -> GtkWidget* {
+        std::cout << "🪟 Creating new WebView for popup/window..." << std::endl;
+
+        // Step 1: Create a new WebView (WebKitGTK 6.0 automatically handles context sharing)
+        WebKitWebView* newWebView = WEBKIT_WEB_VIEW(webkit_web_view_new());
+
+        // Step 2: Connect to "ready-to-show" signal to know when to display
+        g_signal_connect(newWebView, "ready-to-show",
+            G_CALLBACK(+[](WebKitWebView* webView, gpointer data) {
+                BrayaWindow* window = static_cast<BrayaWindow*>(data);
+
+                std::cout << "✓ New window ready to show, creating tab..." << std::endl;
+
+                // Create a scrolled window for the WebView
+                GtkWidget* scrolledWindow = gtk_scrolled_window_new();
+                gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolledWindow), GTK_WIDGET(webView));
+
+                // Add to tab stack
+                char name[64];
+                snprintf(name, sizeof(name), "tab-%d", window->nextTabId);
+                gtk_stack_add_named(GTK_STACK(window->tabStack), scrolledWindow, name);
+
+                // Create tab button
+                GtkWidget* faviconBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+                gtk_widget_set_halign(faviconBox, GTK_ALIGN_CENTER);
+                gtk_widget_set_valign(faviconBox, GTK_ALIGN_CENTER);
+                gtk_widget_set_size_request(faviconBox, 32, 32);
+                gtk_widget_add_css_class(faviconBox, "tab-favicon");
+
+                GtkWidget* tabBtn = gtk_button_new();
+                gtk_widget_add_css_class(tabBtn, "tab-button");
+                gtk_widget_set_size_request(tabBtn, 48, 48);
+                gtk_button_set_child(GTK_BUTTON(tabBtn), faviconBox);
+
+                g_object_set_data(G_OBJECT(tabBtn), "tab-index", GINT_TO_POINTER(window->tabs.size()));
+                g_object_set_data(G_OBJECT(tabBtn), "favicon-box", faviconBox);
+                g_signal_connect(tabBtn, "clicked", G_CALLBACK(onTabClicked), window);
+
+                gtk_box_append(GTK_BOX(window->tabsBox), tabBtn);
+
+                // Switch to the new tab
+                window->activeTabIndex = window->tabs.size();
+                gtk_stack_set_visible_child_name(GTK_STACK(window->tabStack), name);
+                window->updateUI();
+
+                std::cout << "✓ New popup window opened in tab " << window->nextTabId << std::endl;
+            }), this);
+
+        // Step 3: Return the WebView (don't show it yet - wait for ready-to-show)
+        return GTK_WIDGET(newWebView);
+    });
+
+    // Set up new tab callback (for opening links in new tabs)
+    tab->setNewTabCallback([this](const std::string& url) {
+        std::cout << "🔗 Opening link in new tab: " << url << std::endl;
+        createTab(url.c_str());
+    });
+
+    // Set up favicon cache callbacks
+    tab->setFaviconCacheCallback([this](const std::string& url, GdkTexture* favicon) {
+        cacheFavicon(url, favicon);
+    });
+    tab->setFaviconGetCallback([this](const std::string& url) -> GdkTexture* {
+        return getCachedFavicon(url);
+    });
+
     // Connect download handler via decide-policy and context
     WebKitWebContext* context = webkit_web_view_get_context(tab->getWebView());
     
@@ -815,9 +1288,162 @@ void BrayaWindow::createTab(const char* url) {
     gtk_widget_add_css_class(tabBtn, "tab-button");
     gtk_widget_set_size_request(tabBtn, 48, 48);
     gtk_button_set_child(GTK_BUTTON(tabBtn), faviconBox);
-    
+
     g_object_set_data(G_OBJECT(tabBtn), "tab-index", GINT_TO_POINTER(tabs.size()));
     g_object_set_data(G_OBJECT(tabBtn), "favicon-box", faviconBox);
+    g_object_set_data(G_OBJECT(tabBtn), "window", this);
+
+    // Add hover controller for tab preview with debouncing (if enabled in settings)
+    if (settings && settings->getShowTabPreviews()) {
+        GtkEventController* motion_controller = gtk_event_controller_motion_new();
+
+        auto enterCallback = +[](GtkEventControllerMotion* controller, double x, double y, gpointer data) {
+            GtkWidget* tabBtn = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+            BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(tabBtn), "window"));
+            int tabIndex = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(tabBtn), "tab-index"));
+
+            if (!window || tabIndex < 0 || tabIndex >= window->tabs.size()) return;
+
+            // Check if we already have a popover showing
+            GtkWidget* existingPopover = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "preview-popover"));
+            if (existingPopover && GTK_IS_WIDGET(existingPopover)) {
+                return; // Already showing preview
+            }
+
+            // Cancel any existing timer
+            guint* existingTimer = (guint*)g_object_get_data(G_OBJECT(tabBtn), "preview-timer");
+            if (existingTimer && *existingTimer > 0) {
+                g_source_remove(*existingTimer);
+                delete existingTimer;
+                g_object_set_data(G_OBJECT(tabBtn), "preview-timer", nullptr);
+            }
+
+            // Create a timer to delay the preview (400ms)
+            struct TimerData {
+                GtkWidget* tabBtn;
+                BrayaWindow* window;
+                int tabIndex;
+            };
+
+            TimerData* timerData = new TimerData{tabBtn, window, tabIndex};
+
+            guint* timerId = new guint;
+            *timerId = g_timeout_add(400, [](gpointer user_data) -> gboolean {
+                TimerData* data = static_cast<TimerData*>(user_data);
+                GtkWidget* tabBtn = data->tabBtn;
+                BrayaWindow* window = data->window;
+                int tabIndex = data->tabIndex;
+
+                delete data;
+
+                // Clear the timer reference
+                guint* storedTimer = (guint*)g_object_get_data(G_OBJECT(tabBtn), "preview-timer");
+                if (storedTimer) {
+                    delete storedTimer;
+                    g_object_set_data(G_OBJECT(tabBtn), "preview-timer", nullptr);
+                }
+
+                // Verify tab still exists
+                if (!window || tabIndex < 0 || tabIndex >= window->tabs.size()) {
+                    return G_SOURCE_REMOVE;
+                }
+
+                BrayaTab* tab = window->tabs[tabIndex].get();
+                WebKitWebView* webView = tab->getWebView();
+                if (!webView) return G_SOURCE_REMOVE;
+
+                // Create preview popover
+                GtkWidget* popover = gtk_popover_new();
+                gtk_widget_set_parent(popover, tabBtn);
+                gtk_popover_set_position(GTK_POPOVER(popover), GTK_POS_RIGHT);
+                gtk_popover_set_autohide(GTK_POPOVER(popover), TRUE);
+                gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);
+                gtk_widget_add_css_class(popover, "tab-preview-popover");
+
+                // Store popover reference
+                g_object_set_data(G_OBJECT(tabBtn), "preview-popover", popover);
+
+                // Auto-cleanup on close
+                g_signal_connect(popover, "closed", G_CALLBACK(+[](GtkPopover* pop, gpointer data) {
+                    GtkWidget* btn = GTK_WIDGET(data);
+                    g_object_set_data(G_OBJECT(btn), "preview-popover", nullptr);
+                    gtk_widget_unparent(GTK_WIDGET(pop));
+                }), tabBtn);
+
+                // Get snapshot of the web view
+                webkit_web_view_get_snapshot(
+                    webView,
+                    WEBKIT_SNAPSHOT_REGION_VISIBLE,
+                    WEBKIT_SNAPSHOT_OPTIONS_NONE,
+                    nullptr,
+                    [](GObject* object, GAsyncResult* result, gpointer user_data) {
+                        GtkWidget* popover = GTK_WIDGET(user_data);
+                        if (!popover || !GTK_IS_WIDGET(popover)) return;
+
+                        GError* error = nullptr;
+                        GdkTexture* texture = webkit_web_view_get_snapshot_finish(
+                            WEBKIT_WEB_VIEW(object), result, &error);
+
+                        if (error) {
+                            g_error_free(error);
+                            gtk_popover_popdown(GTK_POPOVER(popover));
+                            return;
+                        }
+
+                        if (texture) {
+                            // Create scaled preview (300px wide)
+                            int origWidth = gdk_texture_get_width(texture);
+                            int origHeight = gdk_texture_get_height(texture);
+                            int previewWidth = 300;
+                            int previewHeight = (origHeight * previewWidth) / origWidth;
+
+                            GtkWidget* picture = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture));
+                            gtk_widget_set_size_request(picture, previewWidth, previewHeight);
+                            gtk_picture_set_content_fit(GTK_PICTURE(picture), GTK_CONTENT_FIT_SCALE_DOWN);
+
+                            GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+                            gtk_box_append(GTK_BOX(box), picture);
+
+                            gtk_popover_set_child(GTK_POPOVER(popover), box);
+                            gtk_widget_show(popover);
+
+                            g_object_unref(texture);
+                        }
+                    },
+                    popover
+                );
+
+                return G_SOURCE_REMOVE;
+            }, timerData);
+
+            g_object_set_data(G_OBJECT(tabBtn), "preview-timer", timerId);
+        };
+
+        g_signal_connect(motion_controller, "enter", G_CALLBACK(enterCallback), nullptr);
+
+        auto leaveCallback = +[](GtkEventControllerMotion* controller, gpointer data) {
+            GtkWidget* tabBtn = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+
+            // Cancel pending timer if exists
+            guint* existingTimer = (guint*)g_object_get_data(G_OBJECT(tabBtn), "preview-timer");
+            if (existingTimer && *existingTimer > 0) {
+                g_source_remove(*existingTimer);
+                delete existingTimer;
+                g_object_set_data(G_OBJECT(tabBtn), "preview-timer", nullptr);
+            }
+
+            // Close popover if showing
+            GtkWidget* popover = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "preview-popover"));
+            if (popover && GTK_IS_WIDGET(popover)) {
+                gtk_popover_popdown(GTK_POPOVER(popover));
+            }
+        };
+
+        g_signal_connect(motion_controller, "leave", G_CALLBACK(leaveCallback), nullptr);
+
+        gtk_widget_add_controller(tabBtn, motion_controller);
+    }
+
     g_signal_connect(tabBtn, "clicked", G_CALLBACK(onTabClicked), this);
     
     // Middle-click to close tab
@@ -846,7 +1472,12 @@ void BrayaWindow::createTab(const char* url) {
                 }
             }
         }), this);
-    
+
+    // Apply ad-blocker to this tab
+    WebKitWebView* webView = tab->getWebView();
+    WebKitUserContentManager* contentManager = webkit_web_view_get_user_content_manager(webView);
+    adBlocker->applyToContentManager(contentManager);
+
     tabs.push_back(std::move(tab));
     
     // Show bookmarks bar on new tab
@@ -902,13 +1533,42 @@ void BrayaWindow::switchToTab(int index) {
 void BrayaWindow::closeTab(int index) {
     if (tabs.size() <= 1) return; // Don't close last tab
     if (index < 0 || index >= (int)tabs.size()) return;
-    
-    // Remove from UI
+
+    // Save tab info before closing
+    ClosedTab closedTab;
+    closedTab.url = tabs[index]->getUrl();
+    closedTab.title = tabs[index]->getTitle();
+
+    // Add to recently closed tabs (limit to MAX_CLOSED_TABS)
+    recentlyClosedTabs.push_back(closedTab);
+    if (recentlyClosedTabs.size() > MAX_CLOSED_TABS) {
+        recentlyClosedTabs.erase(recentlyClosedTabs.begin());
+    }
+
+    std::cout << "💾 Saved closed tab: " << closedTab.title << " (" << closedTab.url << ")" << std::endl;
+
+    // Clean up any preview popover and timer before removing the tab button
     GtkWidget* tabBtn = tabs[index]->getTabButton();
     if (tabBtn && GTK_IS_WIDGET(tabBtn)) {
+        // Cancel any pending timer
+        guint* existingTimer = (guint*)g_object_get_data(G_OBJECT(tabBtn), "preview-timer");
+        if (existingTimer && *existingTimer > 0) {
+            g_source_remove(*existingTimer);
+            delete existingTimer;
+            g_object_set_data(G_OBJECT(tabBtn), "preview-timer", nullptr);
+        }
+
+        // Clean up popover
+        GtkWidget* popover = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "preview-popover"));
+        if (popover && GTK_IS_WIDGET(popover)) {
+            gtk_widget_unparent(popover);
+            g_object_set_data(G_OBJECT(tabBtn), "preview-popover", nullptr);
+        }
+
+        // Remove from UI
         gtk_box_remove(GTK_BOX(tabsBox), tabBtn);
     }
-    
+
     // Remove from tabs vector
     tabs.erase(tabs.begin() + index);
     
@@ -934,17 +1594,435 @@ void BrayaWindow::closeTab(int index) {
     }
 }
 
+void BrayaWindow::reopenClosedTab() {
+    if (recentlyClosedTabs.empty()) {
+        std::cout << "ℹ️  No recently closed tabs to reopen" << std::endl;
+        return;
+    }
+
+    // Get the most recently closed tab
+    ClosedTab closedTab = recentlyClosedTabs.back();
+    recentlyClosedTabs.pop_back();
+
+    std::cout << "🔄 Reopening closed tab: " << closedTab.title << " (" << closedTab.url << ")" << std::endl;
+
+    // Create new tab with the URL
+    createTab(closedTab.url.c_str());
+}
+
+// Split View Implementation
+void BrayaWindow::toggleSplitView() {
+    isSplitView = !isSplitView;
+
+    if (isSplitView) {
+        // Entering split view mode
+        std::cout << "🔀 Enabling split view mode" << std::endl;
+
+        // Show the second pane
+        gtk_widget_set_visible(tabStack2, TRUE);
+
+        // Find a different tab to show in the second pane
+        if (tabs.size() >= 2) {
+            // Use the next tab or the previous tab
+            if (activeTabIndex + 1 < tabs.size()) {
+                activeTabIndexPane2 = activeTabIndex + 1;
+            } else if (activeTabIndex > 0) {
+                activeTabIndexPane2 = activeTabIndex - 1;
+            } else {
+                activeTabIndexPane2 = 1;
+            }
+
+            // Move the tab's widget to the second stack
+            BrayaTab* tab2 = tabs[activeTabIndexPane2].get();
+            GtkWidget* scrolledWindow = tab2->getScrolledWindow();
+
+            // Get the current parent stack
+            GtkWidget* currentParent = gtk_widget_get_parent(scrolledWindow);
+            if (currentParent && GTK_IS_STACK(currentParent)) {
+                // Get the stack child name before removing
+                char name[32];
+                snprintf(name, sizeof(name), "tab-%d", tab2->getId());
+
+                // Remove from current stack and add to second stack
+                g_object_ref(scrolledWindow);  // Add ref to prevent destruction
+                gtk_stack_remove(GTK_STACK(currentParent), scrolledWindow);
+                gtk_stack_add_named(GTK_STACK(tabStack2), scrolledWindow, name);
+                g_object_unref(scrolledWindow);  // Release our ref
+
+                // Show it in the second pane
+                gtk_stack_set_visible_child_name(GTK_STACK(tabStack2), name);
+            }
+        } else {
+            // Only one tab - just show message
+            std::cout << "ℹ️  Need at least 2 tabs for split view" << std::endl;
+            isSplitView = FALSE;
+            gtk_widget_set_visible(tabStack2, FALSE);
+            return;
+        }
+
+        // Set split position to 50%
+        int width = gtk_widget_get_width(splitPane);
+        gtk_paned_set_position(GTK_PANED(splitPane), width / 2);
+
+    } else {
+        // Exiting split view mode
+        std::cout << "🔀 Disabling split view mode" << std::endl;
+
+        // Move the tab back to the first stack if needed
+        if (activeTabIndexPane2 >= 0 && activeTabIndexPane2 < tabs.size()) {
+            BrayaTab* tab2 = tabs[activeTabIndexPane2].get();
+            GtkWidget* scrolledWindow = tab2->getScrolledWindow();
+            GtkWidget* currentParent = gtk_widget_get_parent(scrolledWindow);
+
+            if (currentParent == tabStack2) {
+                char name[32];
+                snprintf(name, sizeof(name), "tab-%d", tab2->getId());
+
+                g_object_ref(scrolledWindow);
+                gtk_stack_remove(GTK_STACK(tabStack2), scrolledWindow);
+                gtk_stack_add_named(GTK_STACK(tabStack), scrolledWindow, name);
+                g_object_unref(scrolledWindow);
+            }
+        }
+
+        // Hide the second pane
+        gtk_widget_set_visible(tabStack2, FALSE);
+        activeTabIndexPane2 = -1;
+    }
+}
+
+void BrayaWindow::setSplitOrientation(bool horizontal) {
+    splitHorizontal = horizontal;
+
+    // Recreate the paned widget with new orientation
+    GtkOrientation orientation = horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL;
+
+    // Save current children
+    GtkWidget* child1 = gtk_paned_get_start_child(GTK_PANED(splitPane));
+    GtkWidget* child2 = gtk_paned_get_end_child(GTK_PANED(splitPane));
+
+    g_object_ref(child1);
+    g_object_ref(child2);
+
+    // Remove from old pane
+    gtk_paned_set_start_child(GTK_PANED(splitPane), nullptr);
+    gtk_paned_set_end_child(GTK_PANED(splitPane), nullptr);
+
+    // Remove old pane from parent
+    GtkWidget* parent = gtk_widget_get_parent(splitPane);
+    gtk_box_remove(GTK_BOX(parent), splitPane);
+
+    // Create new pane with correct orientation
+    splitPane = gtk_paned_new(orientation);
+    gtk_paned_set_wide_handle(GTK_PANED(splitPane), TRUE);
+    gtk_widget_set_vexpand(splitPane, TRUE);
+
+    // Add children back
+    gtk_paned_set_start_child(GTK_PANED(splitPane), child1);
+    gtk_paned_set_end_child(GTK_PANED(splitPane), child2);
+    gtk_paned_set_resize_start_child(GTK_PANED(splitPane), TRUE);
+    gtk_paned_set_resize_end_child(GTK_PANED(splitPane), TRUE);
+    gtk_paned_set_shrink_start_child(GTK_PANED(splitPane), FALSE);
+    gtk_paned_set_shrink_end_child(GTK_PANED(splitPane), FALSE);
+
+    g_object_unref(child1);
+    g_object_unref(child2);
+
+    // Add new pane to parent (after bookmarks bar)
+    gtk_box_append(GTK_BOX(parent), splitPane);
+
+    std::cout << "🔀 Split orientation changed to " << (horizontal ? "horizontal" : "vertical") << std::endl;
+}
+
+void BrayaWindow::moveTabToSplitPane(int tabIndex) {
+    if (!isSplitView || tabIndex < 0 || tabIndex >= tabs.size()) return;
+
+    activeTabIndexPane2 = tabIndex;
+
+    // Show the tab in second pane
+    BrayaTab* tab = tabs[tabIndex].get();
+    char name[32];
+    snprintf(name, sizeof(name), "tab-%d", tab->getId());
+    gtk_stack_set_visible_child_name(GTK_STACK(tabStack2), name);
+
+    std::cout << "🔀 Moved tab " << tabIndex << " to split pane" << std::endl;
+}
+
+// Session Management Implementation
+void BrayaWindow::saveSession() {
+    std::string sessionPath = std::string(g_get_home_dir()) + "/.config/braya-browser/session.json";
+    std::string configDir = std::string(g_get_home_dir()) + "/.config/braya-browser";
+    g_mkdir_with_parents(configDir.c_str(), 0755);
+
+    // Build JSON object
+    JsonBuilder* builder = json_builder_new();
+    json_builder_begin_object(builder);
+
+    // Save tabs array
+    json_builder_set_member_name(builder, "tabs");
+    json_builder_begin_array(builder);
+    for (const auto& tab : tabs) {
+        json_builder_begin_object(builder);
+
+        json_builder_set_member_name(builder, "url");
+        json_builder_add_string_value(builder, tab->getUrl().c_str());
+
+        json_builder_set_member_name(builder, "title");
+        json_builder_add_string_value(builder, tab->getTitle().c_str());
+
+        json_builder_set_member_name(builder, "pinned");
+        json_builder_add_boolean_value(builder, tab->isPinned());
+
+        json_builder_set_member_name(builder, "muted");
+        json_builder_add_boolean_value(builder, tab->isMuted());
+
+        json_builder_set_member_name(builder, "tabId");
+        json_builder_add_int_value(builder, tab->getTabId());
+
+        json_builder_end_object(builder);
+    }
+    json_builder_end_array(builder);
+
+    // Save active tab index
+    json_builder_set_member_name(builder, "activeTabIndex");
+    json_builder_add_int_value(builder, activeTabIndex);
+
+    // Save tab groups
+    json_builder_set_member_name(builder, "groups");
+    json_builder_begin_array(builder);
+    for (const auto& group : tabGroups) {
+        json_builder_begin_object(builder);
+
+        json_builder_set_member_name(builder, "name");
+        json_builder_add_string_value(builder, group->getName().c_str());
+
+        json_builder_set_member_name(builder, "color");
+        json_builder_add_string_value(builder, group->getColor().c_str());
+
+        // Save tab IDs in this group
+        json_builder_set_member_name(builder, "tabIds");
+        json_builder_begin_array(builder);
+        for (int tabId : group->getTabs()) {
+            json_builder_add_int_value(builder, tabId);
+        }
+        json_builder_end_array(builder);
+
+        json_builder_end_object(builder);
+    }
+    json_builder_end_array(builder);
+
+    json_builder_end_object(builder);
+
+    // Generate JSON string
+    JsonNode* root = json_builder_get_root(builder);
+    JsonGenerator* generator = json_generator_new();
+    json_generator_set_root(generator, root);
+    json_generator_set_pretty(generator, TRUE);
+    gchar* jsonData = json_generator_to_data(generator, nullptr);
+
+    // Write to file
+    std::ofstream file(sessionPath);
+    if (file.is_open()) {
+        file << jsonData;
+        file.close();
+        std::cout << "💾 Saved session (" << tabs.size() << " tabs, " << tabGroups.size() << " groups)" << std::endl;
+    } else {
+        std::cerr << "ERROR: Could not write session to " << sessionPath << std::endl;
+    }
+
+    g_free(jsonData);
+    g_object_unref(generator);
+    json_node_free(root);
+    g_object_unref(builder);
+}
+
+void BrayaWindow::restoreSession() {
+    std::string sessionPath = std::string(g_get_home_dir()) + "/.config/braya-browser/session.json";
+
+    // Check if session file exists
+    if (!g_file_test(sessionPath.c_str(), G_FILE_TEST_EXISTS)) {
+        std::cout << "ℹ️  No saved session found" << std::endl;
+        return;
+    }
+
+    // Read file
+    std::ifstream file(sessionPath);
+    if (!file.is_open()) {
+        std::cerr << "ERROR: Could not open session file" << std::endl;
+        return;
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    file.close();
+    std::string jsonContent = buffer.str();
+
+    // Parse JSON
+    GError* error = nullptr;
+    JsonParser* parser = json_parser_new();
+
+    if (!json_parser_load_from_data(parser, jsonContent.c_str(), -1, &error)) {
+        std::cerr << "ERROR: Failed to parse session.json: " << error->message << std::endl;
+        g_error_free(error);
+        g_object_unref(parser);
+        return;
+    }
+
+    JsonNode* root = json_parser_get_root(parser);
+    if (!JSON_NODE_HOLDS_OBJECT(root)) {
+        g_object_unref(parser);
+        return;
+    }
+
+    JsonObject* rootObj = json_node_get_object(root);
+
+    // Restore tabs
+    if (json_object_has_member(rootObj, "tabs")) {
+        JsonArray* tabsArray = json_object_get_array_member(rootObj, "tabs");
+        int numTabs = json_array_get_length(tabsArray);
+
+        std::cout << "🔄 Restoring " << numTabs << " tabs from session..." << std::endl;
+
+        for (int i = 0; i < numTabs; i++) {
+            JsonObject* tabObj = json_array_get_object_element(tabsArray, i);
+
+            const char* url = json_object_get_string_member(tabObj, "url");
+            bool pinned = json_object_has_member(tabObj, "pinned") ?
+                         json_object_get_boolean_member(tabObj, "pinned") : false;
+            bool muted = json_object_has_member(tabObj, "muted") ?
+                        json_object_get_boolean_member(tabObj, "muted") : false;
+
+            // Create tab with the URL
+            createTab(url);
+
+            // Apply pinned/muted state
+            if (tabs.size() > 0) {
+                auto& tab = tabs.back();
+                if (pinned) tab->setPinned(true);
+                if (muted) tab->setMuted(true);
+            }
+        }
+    }
+
+    // Restore tab groups
+    if (json_object_has_member(rootObj, "groups")) {
+        JsonArray* groupsArray = json_object_get_array_member(rootObj, "groups");
+        int numGroups = json_array_get_length(groupsArray);
+
+        std::cout << "🔄 Restoring " << numGroups << " tab groups..." << std::endl;
+
+        for (int i = 0; i < numGroups; i++) {
+            JsonObject* groupObj = json_array_get_object_element(groupsArray, i);
+
+            const char* name = json_object_get_string_member(groupObj, "name");
+            const char* color = json_object_get_string_member(groupObj, "color");
+
+            // Create the group
+            createTabGroup(name, color);
+            int groupId = tabGroups.size() - 1;
+
+            // Add tabs to group
+            if (json_object_has_member(groupObj, "tabIds")) {
+                JsonArray* tabIdsArray = json_object_get_array_member(groupObj, "tabIds");
+                int numTabIds = json_array_get_length(tabIdsArray);
+
+                for (int j = 0; j < numTabIds; j++) {
+                    int tabId = json_array_get_int_element(tabIdsArray, j);
+
+                    // Find tab with this ID and add to group
+                    for (size_t k = 0; k < tabs.size(); k++) {
+                        if (tabs[k]->getTabId() == tabId) {
+                            addTabToGroup(tabId, groupId);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Restore active tab
+    if (json_object_has_member(rootObj, "activeTabIndex")) {
+        int savedActiveIndex = json_object_get_int_member(rootObj, "activeTabIndex");
+        if (savedActiveIndex >= 0 && savedActiveIndex < tabs.size()) {
+            switchToTab(savedActiveIndex);
+        }
+    }
+
+    g_object_unref(parser);
+    std::cout << "✓ Session restored successfully" << std::endl;
+}
+
+// Favicon Caching Implementation
+
+void BrayaWindow::cacheFavicon(const std::string& url, GdkTexture* favicon) {
+    if (!favicon || !GDK_IS_TEXTURE(favicon)) {
+        return;
+    }
+
+    // Extract domain from URL for caching key
+    std::string cacheKey = url;
+
+    // Simple domain extraction (e.g., "https://example.com/page" -> "example.com")
+    size_t protocolEnd = url.find("://");
+    if (protocolEnd != std::string::npos) {
+        size_t domainStart = protocolEnd + 3;
+        size_t domainEnd = url.find("/", domainStart);
+        if (domainEnd == std::string::npos) {
+            domainEnd = url.length();
+        }
+        cacheKey = url.substr(domainStart, domainEnd - domainStart);
+    }
+
+    // Check if we already have a cached favicon for this domain
+    auto it = faviconCache.find(cacheKey);
+    if (it != faviconCache.end()) {
+        // Unreference old favicon
+        if (it->second) {
+            g_object_unref(it->second);
+        }
+    }
+
+    // Store new favicon with reference
+    faviconCache[cacheKey] = GDK_TEXTURE(g_object_ref(favicon));
+
+    std::cout << "💾 Cached favicon for: " << cacheKey << " (cache size: " << faviconCache.size() << ")" << std::endl;
+}
+
+GdkTexture* BrayaWindow::getCachedFavicon(const std::string& url) {
+    // Extract domain from URL
+    std::string cacheKey = url;
+
+    size_t protocolEnd = url.find("://");
+    if (protocolEnd != std::string::npos) {
+        size_t domainStart = protocolEnd + 3;
+        size_t domainEnd = url.find("/", domainStart);
+        if (domainEnd == std::string::npos) {
+            domainEnd = url.length();
+        }
+        cacheKey = url.substr(domainStart, domainEnd - domainStart);
+    }
+
+    auto it = faviconCache.find(cacheKey);
+    if (it != faviconCache.end() && it->second && GDK_IS_TEXTURE(it->second)) {
+        std::cout << "✓ Found cached favicon for: " << cacheKey << std::endl;
+        return it->second;
+    }
+
+    return nullptr;
+}
+
 void BrayaWindow::navigateTo(const char* url) {
     if (!url || strlen(url) == 0) {
         std::cerr << "Empty URL provided" << std::endl;
         return;
     }
-    
+
     if (activeTabIndex < 0 || activeTabIndex >= (int)tabs.size()) {
         std::cerr << "Invalid tab index: " << activeTabIndex << std::endl;
         return;
     }
-    
+
     BrayaTab* tab = tabs[activeTabIndex].get();
     if (!tab || !tab->getWebView()) {
         std::cerr << "Invalid tab or webview" << std::endl;
@@ -1178,6 +2256,11 @@ void BrayaWindow::onSettingsClicked(GtkWidget* widget, gpointer data) {
     window->settings->show(GTK_WINDOW(window->window));
 }
 
+void BrayaWindow::onAdBlockerShieldClicked(GtkWidget* widget, gpointer data) {
+    BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    window->settings->showTab(GTK_WINDOW(window->window), "adblocker");
+}
+
 void BrayaWindow::onDownloadsClicked(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
     window->showDownloads();
@@ -1264,6 +2347,10 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
         if (keyval == GDK_KEY_t) {
             window->createTab();
             return TRUE;
+        } else if (keyval == GDK_KEY_T && (state & GDK_SHIFT_MASK)) {
+            // Ctrl+Shift+T - Reopen closed tab
+            window->reopenClosedTab();
+            return TRUE;
         } else if (keyval == GDK_KEY_w) {
             if (window->tabs.size() > 1 && window->activeTabIndex >= 0) {
                 window->closeTab(window->activeTabIndex);
@@ -1300,8 +2387,14 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
         if (keyval == GDK_KEY_S || keyval == GDK_KEY_s) {
             window->takeScreenshot();
             return TRUE;
+        } else if (keyval == GDK_KEY_D || keyval == GDK_KEY_d) {
+            window->toggleSplitView();
+            return TRUE;
         } else if (keyval == GDK_KEY_P || keyval == GDK_KEY_p) {
-            window->showPasswordManager();
+            // Password Manager - now opens Settings→Passwords
+            if (window->settings) {
+                window->settings->showTab(GTK_WINDOW(window->window), "passwords");
+            }
             return TRUE;
         } else if (keyval == GDK_KEY_B || keyval == GDK_KEY_b) {
             // Toggle bookmarks bar visibility
@@ -1344,22 +2437,36 @@ void BrayaWindow::createTabGroup(const std::string& name, const std::string& col
 
 void BrayaWindow::addTabToGroup(int tabId, int groupId) {
     if (groupId < 0 || groupId >= tabGroups.size()) return;
-    
+
     // Remove from old group if exists
     removeTabFromGroup(tabId);
-    
+
     // Add to new group
     tabGroups[groupId]->addTab(tabId);
     tabToGroup[tabId] = groupId;
-    
+
     // Update tab visual indicator
     for (auto& tab : tabs) {
         if (tab->getTabId() == tabId) {
             GtkWidget* tabButton = tab->getTabButton();
             if (tabButton) {
-                // Add colored border indicator
-                std::string css = "border-left: 3px solid " + tabGroups[groupId]->getColor() + ";";
-                // Apply CSS inline
+                // Add colored border indicator using CSS
+                std::string colorClass = "tab-group-" + std::to_string(groupId);
+                gtk_widget_add_css_class(tabButton, colorClass.c_str());
+
+                // Create CSS provider for this color if it doesn't exist
+                std::string cssData = "." + colorClass + " { border-left: 4px solid " + tabGroups[groupId]->getColor() + "; }";
+                GtkCssProvider* provider = gtk_css_provider_new();
+                gtk_css_provider_load_from_string(provider, cssData.c_str());
+                gtk_style_context_add_provider_for_display(
+                    gdk_display_get_default(),
+                    GTK_STYLE_PROVIDER(provider),
+                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+                );
+                g_object_unref(provider);
+
+                std::cout << "✓ Added tab " << tabId << " to group '" << tabGroups[groupId]->getName()
+                          << "' with color " << tabGroups[groupId]->getColor() << std::endl;
             }
         }
     }
@@ -1371,6 +2478,17 @@ void BrayaWindow::removeTabFromGroup(int tabId) {
         int groupId = it->second;
         if (groupId >= 0 && groupId < tabGroups.size()) {
             tabGroups[groupId]->removeTab(tabId);
+
+            // Remove visual indicator
+            for (auto& tab : tabs) {
+                if (tab->getTabId() == tabId) {
+                    GtkWidget* tabButton = tab->getTabButton();
+                    if (tabButton) {
+                        std::string colorClass = "tab-group-" + std::to_string(groupId);
+                        gtk_widget_remove_css_class(tabButton, colorClass.c_str());
+                    }
+                }
+            }
         }
         tabToGroup.erase(it);
     }
@@ -1467,14 +2585,164 @@ void BrayaWindow::onTabRightClick(GtkGestureClick* gesture, int n_press, double 
     GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_box_append(GTK_BOX(box), separator);
 
+    // Recently Closed Tabs submenu
+    if (!window->recentlyClosedTabs.empty()) {
+        GtkWidget* reopenBtn = gtk_button_new_with_label("🔄 Reopen Closed Tab");
+        g_object_set_data(G_OBJECT(reopenBtn), "window", window);
+        g_signal_connect(reopenBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
+            BrayaWindow* w = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(btn), "window"));
+            if (w) {
+                w->reopenClosedTab();
+            }
+        }), nullptr);
+        gtk_box_append(GTK_BOX(box), reopenBtn);
+
+        // Show list of recently closed tabs (up to 5 in context menu)
+        int count = std::min((int)window->recentlyClosedTabs.size(), 5);
+        for (int i = window->recentlyClosedTabs.size() - 1; i >= window->recentlyClosedTabs.size() - count; i--) {
+            const auto& closed = window->recentlyClosedTabs[i];
+            std::string label = "  • " + closed.title;
+            if (label.length() > 40) {
+                label = label.substr(0, 37) + "...";
+            }
+            GtkWidget* itemBtn = gtk_button_new_with_label(label.c_str());
+            gtk_widget_add_css_class(itemBtn, "dim-label");
+            g_object_set_data(G_OBJECT(itemBtn), "window", window);
+            g_object_set_data(G_OBJECT(itemBtn), "url", g_strdup(closed.url.c_str()));
+            g_signal_connect(itemBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
+                BrayaWindow* w = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(btn), "window"));
+                const char* url = (const char*)g_object_get_data(G_OBJECT(btn), "url");
+                if (w && url) {
+                    w->createTab(url);
+                }
+            }), nullptr);
+            gtk_box_append(GTK_BOX(box), itemBtn);
+        }
+
+        GtkWidget* separator2 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+        gtk_box_append(GTK_BOX(box), separator2);
+    }
+
     // Create group button
     GtkWidget* createBtn = gtk_button_new_with_label("📁 Create New Group");
+    g_object_set_data(G_OBJECT(createBtn), "window", window);
+    g_object_set_data(G_OBJECT(createBtn), "tab", tab);
+    g_object_set_data(G_OBJECT(createBtn), "menu", menu);
+
+    auto onCreateGroupClick = [](GtkButton* btn, gpointer data) -> void {
+        BrayaWindow* w = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(btn), "window"));
+        BrayaTab* t = static_cast<BrayaTab*>(g_object_get_data(G_OBJECT(btn), "tab"));
+        GtkWidget* m = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "menu"));
+
+        if (!w || !t) return;
+
+        // Close the context menu first
+        gtk_popover_popdown(GTK_POPOVER(m));
+
+        // Show dialog to create new group
+        GtkWidget* dialog = gtk_window_new();
+        gtk_window_set_title(GTK_WINDOW(dialog), "Create Tab Group");
+        gtk_window_set_default_size(GTK_WINDOW(dialog), 400, 200);
+        gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+        gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(w->getWindow()));
+
+        GtkWidget* dialogBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
+        gtk_widget_set_margin_start(dialogBox, 20);
+        gtk_widget_set_margin_end(dialogBox, 20);
+        gtk_widget_set_margin_top(dialogBox, 20);
+        gtk_widget_set_margin_bottom(dialogBox, 20);
+        gtk_window_set_child(GTK_WINDOW(dialog), dialogBox);
+
+        // Group name input
+        GtkWidget* nameLabel = gtk_label_new("Group Name:");
+        gtk_widget_set_halign(nameLabel, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(dialogBox), nameLabel);
+
+        GtkWidget* nameEntry = gtk_entry_new();
+        gtk_entry_set_placeholder_text(GTK_ENTRY(nameEntry), "My Group");
+        gtk_box_append(GTK_BOX(dialogBox), nameEntry);
+
+        // Color picker
+        GtkWidget* colorLabel = gtk_label_new("Group Color:");
+        gtk_widget_set_halign(colorLabel, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(dialogBox), colorLabel);
+
+        GtkWidget* colorBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+        const char* colors[] = {"#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E2"};
+        const char* colorNames[] = {"Red", "Teal", "Blue", "Coral", "Mint", "Yellow", "Purple", "Sky"};
+
+        for (int i = 0; i < 8; i++) {
+            GtkWidget* colorBtn = gtk_button_new_with_label(colorNames[i]);
+            gtk_widget_set_size_request(colorBtn, 60, 36);
+            g_object_set_data_full(G_OBJECT(colorBtn), "color", g_strdup(colors[i]), g_free);
+
+            // Set background color using CSS
+            GtkCssProvider* provider = gtk_css_provider_new();
+            std::string css = "button { background: " + std::string(colors[i]) + "; color: white; font-weight: bold; }";
+            gtk_css_provider_load_from_string(provider, css.c_str());
+            gtk_style_context_add_provider(gtk_widget_get_style_context(colorBtn),
+                                          GTK_STYLE_PROVIDER(provider),
+                                          GTK_STYLE_PROVIDER_PRIORITY_USER);
+            g_object_unref(provider);
+
+            g_object_set_data(G_OBJECT(colorBtn), "nameEntry", nameEntry);
+            g_object_set_data(G_OBJECT(colorBtn), "window", w);
+            g_object_set_data(G_OBJECT(colorBtn), "tab", t);
+            g_object_set_data(G_OBJECT(colorBtn), "dialog", dialog);
+
+            g_signal_connect(colorBtn, "clicked", G_CALLBACK(+[](GtkButton* cb, gpointer data) {
+                const char* color = (const char*)g_object_get_data(G_OBJECT(cb), "color");
+                GtkWidget* entry = GTK_WIDGET(g_object_get_data(G_OBJECT(cb), "nameEntry"));
+                BrayaWindow* win = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(cb), "window"));
+                BrayaTab* tab = static_cast<BrayaTab*>(g_object_get_data(G_OBJECT(cb), "tab"));
+                GtkWidget* dlg = GTK_WIDGET(g_object_get_data(G_OBJECT(cb), "dialog"));
+
+                if (!color || !win || !tab) return;
+
+                // Get group name
+                const char* name = gtk_editable_get_text(GTK_EDITABLE(entry));
+                std::string groupName = (name && strlen(name) > 0) ? name : "New Group";
+
+                // Create the group
+                win->createTabGroup(groupName, color);
+                int groupId = win->tabGroups.size() - 1;
+
+                // Add the current tab to the group
+                win->addTabToGroup(tab->getTabId(), groupId);
+
+                // Close dialog
+                gtk_window_close(GTK_WINDOW(dlg));
+            }), nullptr);
+
+            gtk_box_append(GTK_BOX(colorBox), colorBtn);
+        }
+        gtk_box_append(GTK_BOX(dialogBox), colorBox);
+
+        gtk_window_present(GTK_WINDOW(dialog));
+    };
+
+    g_signal_connect(createBtn, "clicked", G_CALLBACK(+onCreateGroupClick), nullptr);
     gtk_box_append(GTK_BOX(box), createBtn);
 
-    // Add to group buttons
+    // Add to existing group buttons
     for (size_t i = 0; i < window->tabGroups.size(); i++) {
         std::string label = "➕ " + window->tabGroups[i]->getName();
         GtkWidget* btn = gtk_button_new_with_label(label.c_str());
+        g_object_set_data(G_OBJECT(btn), "window", window);
+        g_object_set_data(G_OBJECT(btn), "tab", tab);
+        g_object_set_data(G_OBJECT(btn), "group-id", GINT_TO_POINTER(i));
+        g_object_set_data(G_OBJECT(btn), "menu", menu);
+        g_signal_connect(btn, "clicked", G_CALLBACK(+[](GtkButton* b, gpointer data) {
+            BrayaWindow* w = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(b), "window"));
+            BrayaTab* t = static_cast<BrayaTab*>(g_object_get_data(G_OBJECT(b), "tab"));
+            int groupId = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "group-id"));
+            GtkWidget* m = GTK_WIDGET(g_object_get_data(G_OBJECT(b), "menu"));
+
+            if (w && t) {
+                w->addTabToGroup(t->getTabId(), groupId);
+                gtk_popover_popdown(GTK_POPOVER(m));
+            }
+        }), nullptr);
         gtk_box_append(GTK_BOX(box), btn);
     }
 
@@ -1484,8 +2752,9 @@ void BrayaWindow::onTabRightClick(GtkGestureClick* gesture, int n_press, double 
 }
 
 void BrayaWindow::showPasswordManager() {
-    if (passwordManager) {
-        passwordManager->showPasswordManager(GTK_WINDOW(window));
+    // Password manager is now in Settings→Passwords tab
+    if (settings) {
+        settings->showTab(GTK_WINDOW(window), "passwords");
     }
 }
 
@@ -2071,94 +3340,7 @@ void BrayaWindow::updateExtensionButtons() {
         g_object_set_data(G_OBJECT(btn), "window", this);
 
         // Connect click handler
-        g_signal_connect(btn, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
-            BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(button), "window"));
-            const char* extensionId = (const char*)g_object_get_data(G_OBJECT(button), "extension-id");
-
-            if (!window || !window->extensionManager || !extensionId) {
-                return;
-            }
-
-            auto* extension = window->extensionManager->getWebExtension(extensionId);
-            if (!extension) {
-                return;
-            }
-
-            BrowserAction action = extension->getBrowserAction();
-            std::cout << "🔌 Extension button clicked: " << extension->getName() << std::endl;
-
-            // If there's a popup, show it
-            if (!action.default_popup.empty()) {
-                std::cout << "  Opening popup: " << action.default_popup << std::endl;
-
-                // Create popup window
-                GtkWidget* popupWindow = gtk_window_new();
-                gtk_window_set_title(GTK_WINDOW(popupWindow), extension->getName().c_str());
-                gtk_window_set_default_size(GTK_WINDOW(popupWindow), 400, 600);
-                gtk_window_set_transient_for(GTK_WINDOW(popupWindow), GTK_WINDOW(window->window));
-                gtk_window_set_modal(GTK_WINDOW(popupWindow), TRUE);
-
-                // Get the WebKit context from the extension manager
-                WebKitWebContext* context = window->extensionManager->getWebContext();
-
-                // Create WebView with the same context as main browser
-                WebKitWebView* popupView;
-                if (context) {
-                    popupView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
-                                                              "web-context", context,
-                                                              nullptr));
-                    std::cout << "  ✓ Created popup WebView with extension context" << std::endl;
-                } else {
-                    popupView = WEBKIT_WEB_VIEW(webkit_web_view_new());
-                    std::cout << "  ⚠️  Created popup WebView with default context" << std::endl;
-                }
-
-                // Enable JavaScript and other necessary features
-                WebKitSettings* settings = webkit_web_view_get_settings(popupView);
-                webkit_settings_set_enable_javascript(settings, TRUE);
-                webkit_settings_set_enable_write_console_messages_to_stdout(settings, TRUE);
-                webkit_settings_set_allow_file_access_from_file_urls(settings, TRUE);
-                webkit_settings_set_allow_universal_access_from_file_urls(settings, TRUE);
-
-                // Inject browser APIs using UserScript to guarantee it runs BEFORE page scripts
-                std::cout << "  → Setting up API injection for popup..." << std::endl;
-
-                // Get the extension API JavaScript
-                std::string apiScript = BrayaExtensionAPI::getBackgroundPageAPI();
-
-                // Create a user script that will inject at document start (before any page content)
-                WebKitUserContentManager* popupContentManager = webkit_web_view_get_user_content_manager(popupView);
-                WebKitUserScript* userScript = webkit_user_script_new(
-                    apiScript.c_str(),
-                    WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
-                    WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,  // CRITICAL: Inject BEFORE page scripts
-                    nullptr,  // Allow list (nullptr = all pages)
-                    nullptr   // Block list
-                );
-
-                webkit_user_content_manager_add_script(popupContentManager, userScript);
-                webkit_user_script_unref(userScript);
-
-                std::cout << "  ✓ Browser APIs will inject at document start (before page scripts)" << std::endl;
-
-                // Load popup HTML
-                std::string popupPath = extension->getPath() + "/" + action.default_popup;
-                std::string popupUri = "file://" + popupPath;
-
-                std::cout << "  Loading popup from: " << popupUri << std::endl;
-                webkit_web_view_load_uri(popupView, popupUri.c_str());
-
-                // Add to window
-                GtkWidget* scrolled = gtk_scrolled_window_new();
-                gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), GTK_WIDGET(popupView));
-                gtk_window_set_child(GTK_WINDOW(popupWindow), scrolled);
-
-                gtk_window_present(GTK_WINDOW(popupWindow));
-            } else {
-                // No popup - just trigger the extension
-                std::cout << "  No popup defined for this extension" << std::endl;
-            }
-        }), nullptr);
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_extension_button_clicked), nullptr);
 
         gtk_box_append(GTK_BOX(extensionButtonsBox), btn);
     }

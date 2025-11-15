@@ -1,9 +1,15 @@
 #include "BrayaCustomization.h"
 #include <iostream>
 #include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <sys/stat.h>
+#include <json-glib/json-glib.h>
 
-BrayaCustomization::BrayaCustomization() : dialog(nullptr), notebook(nullptr) {
+BrayaCustomization::BrayaCustomization() : dialog(nullptr), notebook(nullptr), cssProvider(nullptr) {
+    initializePresets();
     load();
+    cssProvider = gtk_css_provider_new();
 }
 
 void BrayaCustomization::show(GtkWindow* parent) {
@@ -77,9 +83,9 @@ void BrayaCustomization::createDialog(GtkWindow* parent) {
 
 GtkWidget* BrayaCustomization::createColorsTab() {
     GtkWidget* scroll = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), 
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
         GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    
+
     GtkWidget* grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(grid), 12);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 15);
@@ -88,106 +94,46 @@ GtkWidget* BrayaCustomization::createColorsTab() {
     gtk_widget_set_margin_top(grid, 20);
     gtk_widget_set_margin_bottom(grid, 20);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), grid);
-    
+
     int row = 0;
-    
-    // Section: Sidebar
-    GtkWidget* sidebarLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(sidebarLabel), "<b>Sidebar</b>");
-    gtk_widget_set_halign(sidebarLabel, GTK_ALIGN_START);
-    gtk_grid_attach(GTK_GRID(grid), sidebarLabel, 0, row++, 2, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Background", &colors.sidebarBg), 
+
+    // Section: Main CSS Variables
+    GtkWidget* mainLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(mainLabel), "<b>Main Theme Colors (CSS Variables)</b>");
+    gtk_widget_set_halign(mainLabel, GTK_ALIGN_START);
+    gtk_grid_attach(GTK_GRID(grid), mainLabel, 0, row++, 2, 1);
+
+    // Accent Color
+    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Accent Color", &colors.accentPrimary),
+        0, row++, 2, 1);
+
+    // Backgrounds
+    GtkWidget* bgLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(bgLabel), "<b>Backgrounds</b>");
+    gtk_widget_set_halign(bgLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(bgLabel, 15);
+    gtk_grid_attach(GTK_GRID(grid), bgLabel, 0, row++, 2, 1);
+
+    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Primary", &colors.bgPrimary),
         0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Border", &colors.sidebarBorder), 
+    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Secondary", &colors.bgSecondary),
         1, row++, 1, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Text", &colors.sidebarText), 
-        0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Hover", &colors.sidebarHover), 
-        1, row++, 1, 1);
-    
-    // Section: Tab Bar
-    GtkWidget* tabLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(tabLabel), "<b>Tab Bar</b>");
-    gtk_widget_set_halign(tabLabel, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(tabLabel, 10);
-    gtk_grid_attach(GTK_GRID(grid), tabLabel, 0, row++, 2, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Background", &colors.tabBarBg), 
-        0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Active Tab", &colors.tabActive), 
-        1, row++, 1, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Inactive Tab", &colors.tabInactive), 
-        0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Hover", &colors.tabHover), 
-        1, row++, 1, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Border", &colors.tabBorder), 
+
+    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Tertiary", &colors.bgTertiary),
         0, row++, 1, 1);
-    
-    // Section: URL Bar
-    GtkWidget* urlLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(urlLabel), "<b>URL Bar</b>");
-    gtk_widget_set_halign(urlLabel, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(urlLabel, 10);
-    gtk_grid_attach(GTK_GRID(grid), urlLabel, 0, row++, 2, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Background", &colors.urlBarBg), 
+
+    // Text Colors
+    GtkWidget* textLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(textLabel), "<b>Text Colors</b>");
+    gtk_widget_set_halign(textLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(textLabel, 15);
+    gtk_grid_attach(GTK_GRID(grid), textLabel, 0, row++, 2, 1);
+
+    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Primary", &colors.textPrimary),
         0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Text", &colors.urlBarText), 
+    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Secondary", &colors.textSecondary),
         1, row++, 1, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Border", &colors.urlBarBorder), 
-        0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Focus", &colors.urlBarFocus), 
-        1, row++, 1, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Placeholder", &colors.urlBarPlaceholder), 
-        0, row++, 1, 1);
-    
-    // Section: Navigation Buttons
-    GtkWidget* navLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(navLabel), "<b>Navigation Buttons</b>");
-    gtk_widget_set_halign(navLabel, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(navLabel, 10);
-    gtk_grid_attach(GTK_GRID(grid), navLabel, 0, row++, 2, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Background", &colors.navBtnBg), 
-        0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Hover", &colors.navBtnHover), 
-        1, row++, 1, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Text", &colors.navBtnText), 
-        0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Disabled", &colors.navBtnDisabled), 
-        1, row++, 1, 1);
-    
-    // Section: Accents
-    GtkWidget* accentLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(accentLabel), "<b>Accent Colors</b>");
-    gtk_widget_set_halign(accentLabel, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(accentLabel, 10);
-    gtk_grid_attach(GTK_GRID(grid), accentLabel, 0, row++, 2, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Primary", &colors.accentPrimary), 
-        0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Secondary", &colors.accentSecondary), 
-        1, row++, 1, 1);
-    
-    // Section: Window
-    GtkWidget* windowLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(windowLabel), "<b>Window</b>");
-    gtk_widget_set_halign(windowLabel, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(windowLabel, 10);
-    gtk_grid_attach(GTK_GRID(grid), windowLabel, 0, row++, 2, 1);
-    
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Background", &colors.windowBg), 
-        0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), createColorPicker("Content", &colors.contentBg), 
-        1, row++, 1, 1);
-    
+
     return scroll;
 }
 
@@ -455,17 +401,219 @@ GtkWidget* BrayaCustomization::createColorPicker(const std::string& label, std::
     return box;
 }
 
+std::string BrayaCustomization::hexToRGB(const std::string& hex) {
+    // Convert #RRGGBB to "R, G, B"
+    if (hex.length() != 7 || hex[0] != '#') {
+        return "0, 217, 255"; // default cyan
+    }
+
+    unsigned int r, g, b;
+    sscanf(hex.c_str(), "#%02x%02x%02x", &r, &g, &b);
+
+    std::ostringstream oss;
+    oss << r << ", " << g << ", " << b;
+    return oss.str();
+}
+
+std::string BrayaCustomization::getConfigPath() {
+    const char* home = g_get_home_dir();
+    return std::string(home) + "/.config/braya-browser/customization.json";
+}
+
+ThemeColors BrayaCustomization::getCurrentTheme() const {
+    ThemeColors theme;
+    theme.name = "Custom";
+    theme.accentColor = colors.accentPrimary;
+    theme.bgPrimary = colors.bgPrimary;
+    theme.bgSecondary = colors.bgSecondary;
+    theme.bgTertiary = colors.bgTertiary;
+    theme.textPrimary = colors.textPrimary;
+    theme.textSecondary = colors.textSecondary;
+    return theme;
+}
+
+void BrayaCustomization::initializePresets() {
+    // Zen (default)
+    ThemeColors zen;
+    zen.name = "Zen";
+    zen.accentColor = "#00d9ff";
+    zen.bgPrimary = "#0a0f14";
+    zen.bgSecondary = "#0f1419";
+    zen.bgTertiary = "#1a1f26";
+    zen.textPrimary = "#e0e6ed";
+    zen.textSecondary = "#9ca3b0";
+    presets["Zen"] = zen;
+
+    // Arc (purple)
+    ThemeColors arc;
+    arc.name = "Arc";
+    arc.accentColor = "#a855f7";
+    arc.bgPrimary = "#0f0a14";
+    arc.bgSecondary = "#1a0f26";
+    arc.bgTertiary = "#261a33";
+    arc.textPrimary = "#e0e6ed";
+    arc.textSecondary = "#9ca3b0";
+    presets["Arc"] = arc;
+
+    // Nord
+    ThemeColors nord;
+    nord.name = "Nord";
+    nord.accentColor = "#88c0d0";
+    nord.bgPrimary = "#2e3440";
+    nord.bgSecondary = "#3b4252";
+    nord.bgTertiary = "#434c5e";
+    nord.textPrimary = "#eceff4";
+    nord.textSecondary = "#d8dee9";
+    presets["Nord"] = nord;
+
+    // Dracula
+    ThemeColors dracula;
+    dracula.name = "Dracula";
+    dracula.accentColor = "#bd93f9";
+    dracula.bgPrimary = "#282a36";
+    dracula.bgSecondary = "#343746";
+    dracula.bgTertiary = "#44475a";
+    dracula.textPrimary = "#f8f8f2";
+    dracula.textSecondary = "#6272a4";
+    presets["Dracula"] = dracula;
+
+    // Tokyo Night
+    ThemeColors tokyo;
+    tokyo.name = "Tokyo Night";
+    tokyo.accentColor = "#7aa2f7";
+    tokyo.bgPrimary = "#1a1b26";
+    tokyo.bgSecondary = "#24283b";
+    tokyo.bgTertiary = "#414868";
+    tokyo.textPrimary = "#c0caf5";
+    tokyo.textSecondary = "#a9b1d6";
+    presets["Tokyo Night"] = tokyo;
+
+    // Gruvbox Dark
+    ThemeColors gruvbox;
+    gruvbox.name = "Gruvbox";
+    gruvbox.accentColor = "#d79921";  // warm yellow
+    gruvbox.bgPrimary = "#282828";    // dark bg
+    gruvbox.bgSecondary = "#3c3836";  // medium bg
+    gruvbox.bgTertiary = "#504945";   // light bg
+    gruvbox.textPrimary = "#ebdbb2";  // light fg
+    gruvbox.textSecondary = "#a89984"; // medium fg
+    presets["Gruvbox"] = gruvbox;
+
+    // Catppuccin Mocha
+    ThemeColors catppuccin;
+    catppuccin.name = "Catppuccin";
+    catppuccin.accentColor = "#89b4fa";  // blue
+    catppuccin.bgPrimary = "#1e1e2e";    // base
+    catppuccin.bgSecondary = "#313244";  // surface0
+    catppuccin.bgTertiary = "#45475a";   // surface1
+    catppuccin.textPrimary = "#cdd6f4";  // text
+    catppuccin.textSecondary = "#bac2de"; // subtext1
+    presets["Catppuccin"] = catppuccin;
+
+    // One Dark (VS Code)
+    ThemeColors onedark;
+    onedark.name = "One Dark";
+    onedark.accentColor = "#61afef";   // blue
+    onedark.bgPrimary = "#282c34";     // editor bg
+    onedark.bgSecondary = "#21252b";   // darker
+    onedark.bgTertiary = "#2c313c";    // lighter
+    onedark.textPrimary = "#abb2bf";   // fg
+    onedark.textSecondary = "#5c6370"; // comment
+    presets["One Dark"] = onedark;
+
+    // Solarized Dark
+    ThemeColors solarized;
+    solarized.name = "Solarized";
+    solarized.accentColor = "#268bd2";  // blue
+    solarized.bgPrimary = "#002b36";    // base03
+    solarized.bgSecondary = "#073642";  // base02
+    solarized.bgTertiary = "#586e75";   // base01
+    solarized.textPrimary = "#839496";  // base0
+    solarized.textSecondary = "#657b83"; // base00
+    presets["Solarized"] = solarized;
+
+    // Monokai
+    ThemeColors monokai;
+    monokai.name = "Monokai";
+    monokai.accentColor = "#66d9ef";   // cyan
+    monokai.bgPrimary = "#272822";     // bg
+    monokai.bgSecondary = "#3e3d32";   // highlight
+    monokai.bgTertiary = "#49483e";    // line highlight
+    monokai.textPrimary = "#f8f8f2";   // fg
+    monokai.textSecondary = "#75715e"; // comment
+    presets["Monokai"] = monokai;
+}
+
+std::vector<std::string> BrayaCustomization::getAvailablePresets() {
+    std::vector<std::string> names;
+    for (const auto& pair : presets) {
+        names.push_back(pair.first);
+    }
+    return names;
+}
+
+void BrayaCustomization::loadPreset(const std::string& presetName) {
+    auto it = presets.find(presetName);
+    if (it != presets.end()) {
+        const ThemeColors& theme = it->second;
+        colors.accentPrimary = theme.accentColor;
+        colors.bgPrimary = theme.bgPrimary;
+        colors.bgSecondary = theme.bgSecondary;
+        colors.bgTertiary = theme.bgTertiary;
+        colors.textPrimary = theme.textPrimary;
+        colors.textSecondary = theme.textSecondary;
+
+        std::cout << "✓ Loaded preset: " << presetName << std::endl;
+    }
+}
+
+void BrayaCustomization::setAccentColor(const std::string& hexColor) {
+    colors.accentPrimary = hexColor;
+}
+
+void BrayaCustomization::applyTheme(GtkWidget* window) {
+    std::string css = generateCustomCSS();
+
+    GError* error = nullptr;
+    gtk_css_provider_load_from_string(cssProvider, css.c_str());
+
+    if (error) {
+        std::cerr << "ERROR: Failed to load custom CSS: " << error->message << std::endl;
+        g_error_free(error);
+        return;
+    }
+
+    // Apply to the display
+    GdkDisplay* display = gdk_display_get_default();
+    gtk_style_context_add_provider_for_display(
+        display,
+        GTK_STYLE_PROVIDER(cssProvider),
+        GTK_STYLE_PROVIDER_PRIORITY_USER
+    );
+
+    std::cout << "✓ Applied custom theme" << std::endl;
+}
+
 std::string BrayaCustomization::generateCustomCSS() {
     std::string css;
-    
-    css += "/* Custom Generated CSS */\n";
-    css += "window { background-color: " + colors.windowBg + "; }\n";
-    css += ".sidebar { background: " + colors.sidebarBg + "; ";
-    css += "border-right: 1px solid " + colors.sidebarBorder + "; ";
-    css += "min-width: " + std::to_string(layout.sidebarWidth) + "px; }\n";
-    
-    // Add more CSS generation...
-    
+
+    css += "/* Custom Generated CSS - Override CSS Variables */\n";
+    css += ":root {\n";
+    css += "    --braya-accent: " + colors.accentPrimary + ";\n";
+    css += "    --braya-accent-rgb: " + hexToRGB(colors.accentPrimary) + ";\n";
+    css += "    --braya-bg-primary: " + colors.bgPrimary + ";\n";
+    css += "    --braya-bg-secondary: " + colors.bgSecondary + ";\n";
+    css += "    --braya-bg-tertiary: " + colors.bgTertiary + ";\n";
+    css += "    --braya-text-primary: " + colors.textPrimary + ";\n";
+    css += "    --braya-text-secondary: " + colors.textSecondary + ";\n";
+
+    // Regenerate derived variables
+    css += "    --braya-sidebar-bg: linear-gradient(180deg, var(--braya-bg-secondary) 0%, var(--braya-bg-primary) 100%);\n";
+    css += "    --braya-headerbar-bg: linear-gradient(90deg, var(--braya-bg-secondary) 0%, var(--braya-bg-tertiary) 100%);\n";
+    css += "    --braya-statusbar-bg: linear-gradient(90deg, var(--braya-bg-primary) 0%, var(--braya-bg-secondary) 100%);\n";
+
+    css += "}\n";
+
     return css;
 }
 
@@ -477,13 +625,217 @@ void BrayaCustomization::applyCustomization() {
 }
 
 void BrayaCustomization::save() {
-    // Save to JSON file
-    std::cout << "✓ Saved customization settings" << std::endl;
+    std::string configPath = getConfigPath();
+    std::string configDir = std::string(g_get_home_dir()) + "/.config/braya-browser";
+    g_mkdir_with_parents(configDir.c_str(), 0755);
+
+    // Build JSON object
+    JsonBuilder* builder = json_builder_new();
+    json_builder_begin_object(builder);
+
+    // Colors
+    json_builder_set_member_name(builder, "colors");
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "accentPrimary");
+    json_builder_add_string_value(builder, colors.accentPrimary.c_str());
+    json_builder_set_member_name(builder, "bgPrimary");
+    json_builder_add_string_value(builder, colors.bgPrimary.c_str());
+    json_builder_set_member_name(builder, "bgSecondary");
+    json_builder_add_string_value(builder, colors.bgSecondary.c_str());
+    json_builder_set_member_name(builder, "bgTertiary");
+    json_builder_add_string_value(builder, colors.bgTertiary.c_str());
+    json_builder_set_member_name(builder, "textPrimary");
+    json_builder_add_string_value(builder, colors.textPrimary.c_str());
+    json_builder_set_member_name(builder, "textSecondary");
+    json_builder_add_string_value(builder, colors.textSecondary.c_str());
+    json_builder_end_object(builder);
+
+    // Typography
+    json_builder_set_member_name(builder, "typography");
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "uiFont");
+    json_builder_add_string_value(builder, typography.uiFont.c_str());
+    json_builder_set_member_name(builder, "urlFont");
+    json_builder_add_string_value(builder, typography.urlFont.c_str());
+    json_builder_set_member_name(builder, "tabFont");
+    json_builder_add_string_value(builder, typography.tabFont.c_str());
+    json_builder_set_member_name(builder, "uiFontSize");
+    json_builder_add_int_value(builder, typography.uiFontSize);
+    json_builder_set_member_name(builder, "urlFontSize");
+    json_builder_add_int_value(builder, typography.urlFontSize);
+    json_builder_set_member_name(builder, "tabFontSize");
+    json_builder_add_int_value(builder, typography.tabFontSize);
+    json_builder_end_object(builder);
+
+    // Layout
+    json_builder_set_member_name(builder, "layout");
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "sidebarWidth");
+    json_builder_add_int_value(builder, layout.sidebarWidth);
+    json_builder_set_member_name(builder, "tabHeight");
+    json_builder_add_int_value(builder, layout.tabHeight);
+    json_builder_set_member_name(builder, "borderRadius");
+    json_builder_add_int_value(builder, layout.borderRadius);
+    json_builder_set_member_name(builder, "tabBorderRadius");
+    json_builder_add_int_value(builder, layout.tabBorderRadius);
+    json_builder_set_member_name(builder, "urlBarBorderRadius");
+    json_builder_add_int_value(builder, layout.urlBarBorderRadius);
+    json_builder_set_member_name(builder, "iconSize");
+    json_builder_add_int_value(builder, layout.iconSize);
+    json_builder_end_object(builder);
+
+    // Effects
+    json_builder_set_member_name(builder, "effects");
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "shadowIntensity");
+    json_builder_add_int_value(builder, effects.shadowIntensity);
+    json_builder_set_member_name(builder, "shadowOpacity");
+    json_builder_add_double_value(builder, effects.shadowOpacity);
+    json_builder_set_member_name(builder, "enableGlow");
+    json_builder_add_boolean_value(builder, effects.enableGlow);
+    json_builder_set_member_name(builder, "glowIntensity");
+    json_builder_add_int_value(builder, effects.glowIntensity);
+    json_builder_set_member_name(builder, "animationSpeed");
+    json_builder_add_int_value(builder, effects.animationSpeed);
+    json_builder_set_member_name(builder, "transparency");
+    json_builder_add_double_value(builder, effects.transparency);
+    json_builder_end_object(builder);
+
+    json_builder_end_object(builder);
+
+    // Generate JSON string
+    JsonNode* root = json_builder_get_root(builder);
+    JsonGenerator* generator = json_generator_new();
+    json_generator_set_root(generator, root);
+    json_generator_set_pretty(generator, TRUE);
+    gchar* jsonData = json_generator_to_data(generator, nullptr);
+
+    // Write to file
+    std::ofstream file(configPath);
+    if (file.is_open()) {
+        file << jsonData;
+        file.close();
+        std::cout << "✓ Saved customization settings to " << configPath << std::endl;
+    } else {
+        std::cerr << "ERROR: Could not write to " << configPath << std::endl;
+    }
+
+    g_free(jsonData);
+    g_object_unref(generator);
+    json_node_free(root);
+    g_object_unref(builder);
 }
 
 void BrayaCustomization::load() {
-    // Load from JSON file
-    std::cout << "✓ Loaded customization settings" << std::endl;
+    std::string configPath = getConfigPath();
+
+    // Check if file exists
+    if (!g_file_test(configPath.c_str(), G_FILE_TEST_EXISTS)) {
+        std::cout << "ℹ️  No saved customization found, using defaults" << std::endl;
+        return;
+    }
+
+    // Read file
+    std::ifstream file(configPath);
+    if (!file.is_open()) {
+        std::cerr << "ERROR: Could not open " << configPath << std::endl;
+        return;
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    file.close();
+    std::string jsonContent = buffer.str();
+
+    // Parse JSON
+    GError* error = nullptr;
+    JsonParser* parser = json_parser_new();
+
+    if (!json_parser_load_from_data(parser, jsonContent.c_str(), -1, &error)) {
+        std::cerr << "ERROR: Failed to parse customization.json: " << error->message << std::endl;
+        g_error_free(error);
+        g_object_unref(parser);
+        return;
+    }
+
+    JsonNode* root = json_parser_get_root(parser);
+    if (!JSON_NODE_HOLDS_OBJECT(root)) {
+        g_object_unref(parser);
+        return;
+    }
+
+    JsonObject* rootObj = json_node_get_object(root);
+
+    // Load colors
+    if (json_object_has_member(rootObj, "colors")) {
+        JsonObject* colorsObj = json_object_get_object_member(rootObj, "colors");
+        if (json_object_has_member(colorsObj, "accentPrimary"))
+            colors.accentPrimary = json_object_get_string_member(colorsObj, "accentPrimary");
+        if (json_object_has_member(colorsObj, "bgPrimary"))
+            colors.bgPrimary = json_object_get_string_member(colorsObj, "bgPrimary");
+        if (json_object_has_member(colorsObj, "bgSecondary"))
+            colors.bgSecondary = json_object_get_string_member(colorsObj, "bgSecondary");
+        if (json_object_has_member(colorsObj, "bgTertiary"))
+            colors.bgTertiary = json_object_get_string_member(colorsObj, "bgTertiary");
+        if (json_object_has_member(colorsObj, "textPrimary"))
+            colors.textPrimary = json_object_get_string_member(colorsObj, "textPrimary");
+        if (json_object_has_member(colorsObj, "textSecondary"))
+            colors.textSecondary = json_object_get_string_member(colorsObj, "textSecondary");
+    }
+
+    // Load typography
+    if (json_object_has_member(rootObj, "typography")) {
+        JsonObject* typoObj = json_object_get_object_member(rootObj, "typography");
+        if (json_object_has_member(typoObj, "uiFont"))
+            typography.uiFont = json_object_get_string_member(typoObj, "uiFont");
+        if (json_object_has_member(typoObj, "urlFont"))
+            typography.urlFont = json_object_get_string_member(typoObj, "urlFont");
+        if (json_object_has_member(typoObj, "tabFont"))
+            typography.tabFont = json_object_get_string_member(typoObj, "tabFont");
+        if (json_object_has_member(typoObj, "uiFontSize"))
+            typography.uiFontSize = json_object_get_int_member(typoObj, "uiFontSize");
+        if (json_object_has_member(typoObj, "urlFontSize"))
+            typography.urlFontSize = json_object_get_int_member(typoObj, "urlFontSize");
+        if (json_object_has_member(typoObj, "tabFontSize"))
+            typography.tabFontSize = json_object_get_int_member(typoObj, "tabFontSize");
+    }
+
+    // Load layout
+    if (json_object_has_member(rootObj, "layout")) {
+        JsonObject* layoutObj = json_object_get_object_member(rootObj, "layout");
+        if (json_object_has_member(layoutObj, "sidebarWidth"))
+            layout.sidebarWidth = json_object_get_int_member(layoutObj, "sidebarWidth");
+        if (json_object_has_member(layoutObj, "tabHeight"))
+            layout.tabHeight = json_object_get_int_member(layoutObj, "tabHeight");
+        if (json_object_has_member(layoutObj, "borderRadius"))
+            layout.borderRadius = json_object_get_int_member(layoutObj, "borderRadius");
+        if (json_object_has_member(layoutObj, "tabBorderRadius"))
+            layout.tabBorderRadius = json_object_get_int_member(layoutObj, "tabBorderRadius");
+        if (json_object_has_member(layoutObj, "urlBarBorderRadius"))
+            layout.urlBarBorderRadius = json_object_get_int_member(layoutObj, "urlBarBorderRadius");
+        if (json_object_has_member(layoutObj, "iconSize"))
+            layout.iconSize = json_object_get_int_member(layoutObj, "iconSize");
+    }
+
+    // Load effects
+    if (json_object_has_member(rootObj, "effects")) {
+        JsonObject* effectsObj = json_object_get_object_member(rootObj, "effects");
+        if (json_object_has_member(effectsObj, "shadowIntensity"))
+            effects.shadowIntensity = json_object_get_int_member(effectsObj, "shadowIntensity");
+        if (json_object_has_member(effectsObj, "shadowOpacity"))
+            effects.shadowOpacity = json_object_get_double_member(effectsObj, "shadowOpacity");
+        if (json_object_has_member(effectsObj, "enableGlow"))
+            effects.enableGlow = json_object_get_boolean_member(effectsObj, "enableGlow");
+        if (json_object_has_member(effectsObj, "glowIntensity"))
+            effects.glowIntensity = json_object_get_int_member(effectsObj, "glowIntensity");
+        if (json_object_has_member(effectsObj, "animationSpeed"))
+            effects.animationSpeed = json_object_get_int_member(effectsObj, "animationSpeed");
+        if (json_object_has_member(effectsObj, "transparency"))
+            effects.transparency = json_object_get_double_member(effectsObj, "transparency");
+    }
+
+    g_object_unref(parser);
+    std::cout << "✓ Loaded customization settings from " << configPath << std::endl;
 }
 
 // Callbacks
