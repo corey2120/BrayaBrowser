@@ -14,6 +14,46 @@ BrayaWebExtension::~BrayaWebExtension() {
     // Background page is managed by BrayaExtensionManager
 }
 
+// Helper function to resolve i18n messages like __MSG_extName__
+std::string BrayaWebExtension::resolveI18nString(const std::string& str) {
+    // Check if it's an i18n reference
+    if (str.length() > 6 && str.substr(0, 6) == "__MSG_" && str.substr(str.length() - 2) == "__") {
+        // Extract message key
+        std::string key = str.substr(6, str.length() - 8);
+
+        // Try to load from _locales/en/messages.json
+        std::string messagesPath = m_path + "/_locales/en/messages.json";
+
+        GError* error = nullptr;
+        JsonParser* parser = json_parser_new();
+
+        if (json_parser_load_from_file(parser, messagesPath.c_str(), &error)) {
+            JsonNode* root = json_parser_get_root(parser);
+            if (root && JSON_NODE_HOLDS_OBJECT(root)) {
+                JsonObject* rootObj = json_node_get_object(root);
+
+                if (json_object_has_member(rootObj, key.c_str())) {
+                    JsonObject* msgObj = json_object_get_object_member(rootObj, key.c_str());
+                    if (json_object_has_member(msgObj, "message")) {
+                        std::string message = json_object_get_string_member(msgObj, "message");
+                        g_object_unref(parser);
+                        return message;
+                    }
+                }
+            }
+            g_object_unref(parser);
+        } else {
+            if (error) {
+                g_error_free(error);
+            }
+            g_object_unref(parser);
+        }
+    }
+
+    // Return original string if not i18n or couldn't resolve
+    return str;
+}
+
 std::string BrayaWebExtension::readFile(const std::string& filepath) {
     std::ifstream file(filepath);
     if (!file.is_open()) {
@@ -41,6 +81,9 @@ bool BrayaWebExtension::loadManifest() {
         return false;
     }
 
+    // Store the raw JSON
+    m_manifestJson = jsonContent;
+
     return parseManifestJson(jsonContent);
 }
 
@@ -66,7 +109,8 @@ bool BrayaWebExtension::parseManifestJson(const std::string& jsonContent) {
 
     // Parse required fields
     if (json_object_has_member(rootObj, "name")) {
-        m_name = json_object_get_string_member(rootObj, "name");
+        std::string rawName = json_object_get_string_member(rootObj, "name");
+        m_name = resolveI18nString(rawName);
     }
 
     if (json_object_has_member(rootObj, "version")) {
@@ -78,7 +122,8 @@ bool BrayaWebExtension::parseManifestJson(const std::string& jsonContent) {
     }
 
     if (json_object_has_member(rootObj, "description")) {
-        m_description = json_object_get_string_member(rootObj, "description");
+        std::string rawDesc = json_object_get_string_member(rootObj, "description");
+        m_description = resolveI18nString(rawDesc);
     }
 
     // Parse permissions array

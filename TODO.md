@@ -1,424 +1,185 @@
-# Braya Browser TODO & Roadmap
+# Braya Browser TODO
 
-**Last Updated**: November 6, 2025 - 7:00 AM
-**Current Version**: 1.0.1-beta11 (in progress)
-**Recent**: WebExtension support COMPLETE! uBlock Origin & other extensions working! 🎉
+**Current Version:** 1.0.2
+**Last Updated:** November 7, 2024
 
----
+## High Priority
 
-## ✅ COMPLETED - Beta 9, 10, & 11
+### UI/UX Improvements
+- [x] Add tab groups visual UI (backend ready, UI complete!)
+  - [x] Color-coded tab group indicators (4px colored border)
+  - [x] Create new group dialog with 8 color presets
+  - [x] Add tabs to groups via context menu
+  - [ ] Drag-and-drop to organize tabs into groups
+  - [ ] Group collapse/expand animations
 
-### Bookmarks Bar - FIXED! ✅ (Beta 9)
-**Status**: COMPLETE - All issues resolved!
+- [x] Implement split view functionality ✨
+  - [x] Side-by-side tab viewing (horizontal/vertical)
+  - [x] Split toggle button in toolbar
+  - [x] Keyboard shortcut (Ctrl+Shift+D)
+  - [x] Resize handle between panes
+  - [ ] Synchronized scrolling option (future enhancement)
 
-**Fixed Issues**:
-- [x] Bookmarks bar now visible and functional
-- [x] Bookmarks navigate when clicked
-- [x] Show/hide toggle working (Ctrl+Shift+B)
-- [x] Can edit existing bookmarks
-- [x] Can delete bookmarks from bar
-- [x] Right-click context menu working
-- [x] Bar renders properly without GTK errors
+- [x] Tab management enhancements
+  - [x] Tab pinning UI (right-click menu + visual indicator)
+  - [x] Tab muting UI (right-click menu + clickable audio icon)
+  - [x] Tab preview on hover (300px preview popover) 👁️
+  - [x] Recently closed tabs (Ctrl+Shift+T + context menu)
 
-### Professional Icon - COMPLETE! ✨ (Beta 10)
-**Status**: COMPLETE - Beautiful professional icon!
-
-**Completed**:
-- [x] Modern gradient design with brand colors
-- [x] Detailed browser window representation
-- [x] Traffic lights, tabs, and address bar
-- [x] Multiple sizes (16px to 512px + SVG)
-- [x] Proper freedesktop.org installation
-- [x] Icon cache integration
-- [x] Professional appearance in all contexts
-
-### WebExtension Support - COMPLETE! 🎉 (Beta 11)
-**Status**: FULLY FUNCTIONAL - Chrome/Firefox extensions working!
-
-**Implemented**:
-- [x] WebExtension API infrastructure
-- [x] Chrome/Firefox Extension API compatibility
-- [x] Extension installation from .zip files
-- [x] Background pages with proper context isolation
-- [x] Content script injection at document_start/idle
-- [x] Extension toolbar buttons with popups
-- [x] Persistent storage for installed extensions
-- [x] Extension icons in toolbar
-- [x] Browser API injection (tabs, storage, runtime, webRequest, etc.)
-- [x] Message passing between content and background
-- [x] Working extensions: uBlock Origin, Port Authority
-- [x] Extension manifest parsing (v2 & v3)
-- [x] Permissions system
-
----
-
-## 🚨 HIGH PRIORITY - Next Session (UI Polish & Beta 12 Release)
-
-### UI Polish & Fixes - PRIORITY FOR NEXT SESSION
-- [ ] **Fix bookmarks bar size** - Too large, needs to be more compact
-- [ ] **Fix double dog logo in upper left** - Duplicate icon issue
-- [ ] **Review and fix other UI issues**:
-  - Spacing/padding inconsistencies
-  - Button sizes
-  - Icon alignment
-  - Theme consistency
-- [ ] **Build new Beta 12 RPM** with all fixes and WebExtension support
-
-### Tab Features UI
-- [x] WebKit rendering engine
-- [x] Tab management with groups
-- [x] Bookmarks system
-- [x] History tracking
-- [x] Download manager
-- [x] Settings/customization (60+ options)
-- [x] Three themes (Dark, Light, Industrial)
-
-### Password Manager ✅
-- [x] AES-256-CBC encryption
-- [x] Auto-fill with Safari-style detection
-- [x] Multi-account support
-- [x] Chrome CSV import (fixed)
-- [x] Bitwarden integration
-- [x] Visual key icons in fields
-- [x] Focus-triggered autofill
-
-### Quick Wins ✅
-- [x] Reader Mode (Alt+Shift+R)
-- [x] Screenshot Tool (Ctrl+Shift+S)
-- [x] Visual Bookmarks Bar with favicons
-- [x] Speed Dial / New Tab Page
-- [x] Favicon caching system
-- [x] Tab pinning backend
-- [x] Tab muting backend
-
-### UI/UX ✅
-- [x] Modern styling with animations
-- [x] Keyboard shortcuts (7 total)
-- [x] Hover effects
-- [x] Visual polish
-
----
-
-## 🚀 High Priority - After Bookmarks Fixed
-
-### Tab Features UI
-- [ ] **Tab pinning visual indicators**
-  - Pin icon on tab
-  - Smaller pinned tabs
-  - Keep left-aligned
-  - Save pinned state
-  
-- [ ] **Tab mute button**
-  - Speaker icon on tabs with audio
-  - Click to mute/unmute
-  - Visual indicator (🔇/🔊)
-  - Right-click menu option
-
-### Reader Mode Polish
-- [ ] **Dark mode option**
-  - Toggle dark/light reader theme
-  - Respect system theme
-  - Save preference
-  
-- [ ] **Font size controls**
-  - Increase/decrease text size
-  - Different font options
-  - Line height adjustment
-
----
-
-## 🎯 Medium Priority - Beta12+
-
-### Extensions/Add-ons Support - COMPLETE! ✅
-- [x] **Extension API**
-  - WebExtension API compatibility
-  - Chrome extension support
-  - Basic manifest v2 & v3 support
-
-- [x] **Extension Manager**
-  - Enable/disable extensions (via settings)
-  - Extension installation from zip
-  - Permissions system
-
-- [x] **Popular Extensions Working**
-  - uBlock Origin ✅
-  - Port Authority ✅
-  - Ready for more extensions
-
-### Extension Enhancements (Future)
-- [ ] Extension store/marketplace UI
-- [ ] Auto-update for extensions
-- [ ] Extension settings UI
-- [ ] Permission prompts on install
-- [ ] More extension APIs (notifications, downloads, etc.)
-
-### Privacy Features
-- [ ] **Built-in ad blocker**
-  - Basic blocking rules
-  - Toggle on/off
-  - Whitelist sites
-  
-- [ ] **Tracker blocker**
-  - Block tracking scripts
-  - Privacy dashboard
-  - Stats display
-  
-- [ ] **HTTPS-only mode**
-  - Force HTTPS
-  - Warning for HTTP sites
-  - Auto-upgrade option
-
-### Media Features
-- [ ] **Picture-in-Picture**
-  - Floating video window
-  - Always on top
-  - Resize/move controls
-  
-- [ ] **Media controls in toolbar**
-  - Play/pause from any tab
-  - Volume control
-  - Album art display
-
-### Page Tools
-- [ ] **Page translation**
-  - Detect language
-  - Translate button
-  - Google Translate integration
-  
-- [ ] **Find in all tabs**
-  - Search across open tabs
-  - Show results count
-  - Jump between matches
-
----
-
-## 💎 Polish & Nice-to-Have
-
-### Bookmarks (After Core Works!)
-- [ ] Folder dropdowns
-- [ ] Drag & drop reordering
-- [ ] Bookmark import (Chrome/Firefox)
-- [ ] Bookmark sync (cloud)
-- [ ] Most visited tracking
-- [ ] Bookmark tags
-- [ ] Search bookmarks
-- [ ] Duplicate detection
-- [ ] Broken link checker
-
-### Screenshots
-- [ ] Annotation tools
-- [ ] Full page capture (scrolling)
-- [ ] Selection capture
-- [ ] Copy to clipboard
-- [ ] Edit before saving
-
-### Reader Mode
-- [ ] Reading progress indicator
-- [ ] Estimated reading time
-- [ ] Save articles for later
-- [ ] Export to PDF
-- [ ] Text-to-speech
-
-### Tab Management
-- [ ] Tab groups with names
-- [ ] Workspaces/sessions
-- [ ] Tab search
-- [ ] Recently closed tabs
-- [ ] Tab sleeping (memory)
+- [ ] Theme system enhancements
+  - [ ] Add color picker UI for custom accent colors
+  - [x] Add more theme presets (Gruvbox, Catppuccin, One Dark, Solarized, Monokai) 🎨
+  - [ ] Theme export/import functionality
+  - [ ] Custom CSS support (userChrome.css)
 
 ### Performance
-- [ ] Lazy tab loading
-- [ ] GPU acceleration settings
-- [ ] Memory usage optimization
-- [ ] Startup performance
-- [ ] Cache management
+- [ ] Optimize bookmarks bar loading for large collections
+- [ ] Implement lazy loading for history entries
+- [x] Cache favicon downloads to reduce network requests 💾
+- [ ] Profile and optimize extension initialization
+
+### Extensions System
+- [ ] Complete browser.tabs API implementation
+- [ ] Add browser.windows API support
+- [ ] Implement content script injection for all sites
+- [ ] Add extension permissions UI
+- [ ] Create extension store/marketplace browser
+- [ ] Test compatibility with popular extensions:
+  - [ ] uBlock Origin (partially working)
+  - [ ] Dark Reader
+  - [ ] Grammarly
+
+## Medium Priority
+
+### Features
+- [x] Session restore on crash/restart (auto-saves all tabs, groups, pins, mutes) 💾
+- [ ] Private browsing mode
+- [ ] Profiles support (multiple user profiles)
+- [ ] Sync across devices (bookmarks, history, passwords)
+- [ ] Advanced find in page (regex support, match case)
+- [ ] Web developer tools integration
+- [ ] Custom search engines management UI
+
+### Settings & Customization
+- [ ] Import settings from other browsers
+- [ ] Export/backup all browser data
+- [ ] Keyboard shortcuts customization UI
+- [ ] Toolbar button visibility controls
+- [ ] Sidebar customization (width, position, auto-hide)
+- [ ] Font customization (UI font, size, monospace)
+- [ ] Animation controls (speed, enable/disable)
+- [ ] Per-site settings (zoom, permissions)
+
+### Security & Privacy
+- [ ] Cookie management UI
+- [ ] Site permissions manager
+- [ ] Clear browsing data dialog
+- [ ] Do Not Track settings
+- [ ] Enhanced tracking protection UI
+- [ ] Certificate viewer
+
+## Low Priority
+
+### Polish
+- [ ] Improve error messages and dialogs
+- [ ] Add tooltips for all UI elements
+- [ ] Loading animations and transitions
+- [ ] Onboarding/welcome screen for first launch
+- [ ] What's New dialog for updates
+- [ ] In-app help documentation
+
+### Nice to Have
+- [ ] RSS feed reader integration
+- [ ] Screenshot annotation tools
+- [ ] PDF viewer with annotations
+- [ ] Built-in note-taking
+- [ ] Read-it-later integration
+- [ ] Pocket/Instapaper sync
+- [ ] QR code generator for current URL
+- [ ] Page translation (via extension or built-in)
+
+## Technical Debt
+- [ ] Update deprecated GTK4 API calls
+  - [ ] Replace GtkComboBoxText with GtkDropDown
+  - [ ] Replace GtkMessageDialog with modern dialogs
+  - [ ] Replace GtkFileChooserDialog with GtkFileDialog
+  - [ ] Replace gtk_image_new_from_pixbuf with gtk_image_new_from_paintable
+- [ ] Add comprehensive unit tests
+- [ ] Add integration tests
+- [ ] Improve error handling throughout codebase
+- [ ] Add logging framework
+- [ ] Document all classes and functions
+- [ ] Refactor large functions into smaller units
+
+## Documentation
+- [x] Create README.md with build instructions
+- [ ] User manual/wiki
+- [ ] Developer documentation
+- [ ] Extension development guide
+- [ ] Contribution guidelines
+- [ ] Code of conduct
+
+## Known Issues
+- [ ] Popup windows at vwhub.com may cause crashes (needs investigation)
+
+## Recently Completed ✓
+- [x] Tab Preview Fixes - Fixed GTK grabbing issues, auto-hides properly, no more lag 🐛
+- [x] Split View Fixes - Properly moves tabs between stacks, requires 2+ tabs 🔀
+- [x] Downloads Button Improvements - Icon instead of emoji, only visible during active downloads 📥
+- [x] Favicon Caching - Domain-based cache to reduce network requests 💾
+- [x] Tab Preview on Hover - 300px live preview popover when hovering tabs 👁️
+- [x] 5 New Theme Presets - Gruvbox, Catppuccin, One Dark, Solarized, Monokai 🎨
+- [x] Session restore - auto-saves/restores all tabs, groups, pins, mutes 💾
+- [x] Split View functionality with side-by-side browsing (Ctrl+Shift+D) ✨
+- [x] Tab groups visual UI with color-coded borders and creation dialog
+- [x] Recently closed tabs with Ctrl+Shift+T shortcut and context menu
+- [x] Tab pinning UI with visual indicators (📌) and context menu
+- [x] Tab muting UI with clickable audio indicators (🔊/🔇)
+- [x] Theme persistence across browser restarts (JSON save/load)
+- [x] CSS variables system for dynamic theming
+- [x] Theme preset system (Zen, Arc, Nord, Dracula, Tokyo Night)
+- [x] Theme switching in Settings → Appearance
+- [x] Compact Firefox-style UI refinements
+- [x] URL bar extension and proper sizing
+- [x] Bookmarks bar edge-to-edge display (removed gaps)
+- [x] Navigation button spacing optimization
+- [x] Version 1.0.2 release - UI refinements
+- [x] Bookmarks bar Zen-style integration
+- [x] Tab favicon display fix
+- [x] Sidebar cleanup and polish
+- [x] Password manager with encryption
+- [x] Extension system foundation
+- [x] Basic bookmarks management
+- [x] History tracking
+- [x] Download manager
+- [x] Multiple themes (Dark, Light, Industrial)
 
 ---
 
-## 🔮 Future Vision (v2.0+)
+## Next Session Focus
 
-### Sync & Cloud
-- [ ] Cross-device sync
-- [ ] Account system
-- [ ] Cloud bookmarks
-- [ ] Cloud passwords
-- [ ] Settings sync
+### Priority 1: Theme System Enhancement
+- Add color picker widgets for theme customization
+- Implement theme export/import (JSON format)
+- Add more theme presets (Gruvbox, Catppuccin, One Dark, Solarized)
+- Create real-time preview system
 
-### Mobile
-- [ ] Android version
-- [ ] iOS version (if possible)
-- [ ] Mobile sync
+### Priority 2: Extension System
+- Investigate and fix vwhub.com popup crashes
+- Complete browser.tabs API implementation
+- Test more extensions for compatibility
+- Add extension permissions UI
 
-### AI Features
-- [ ] Page summarization
-- [ ] Smart search
-- [ ] Content recommendations
-- [ ] Auto-categorization
-
-### Developer Tools
-- [ ] Enhanced devtools
-- [ ] Network inspector
-- [ ] Performance profiler
-- [ ] Console improvements
-
-### Social
-- [ ] Share pages
-- [ ] Collaborative browsing
-- [ ] Notes/annotations
-- [ ] Shared bookmarks
+### Priority 3: UI Features
+- Implement tab pinning UI
+- Add tab muting UI with sound indicators
+- Create recently closed tabs menu
+- Add tab preview on hover
 
 ---
 
-## 🐛 Known Issues to Fix
-
-### CRITICAL - Beta8 Issues 🔴
-1. **Bookmarks bar completely broken** (TOP PRIORITY!)
-   - Not visible
-   - Clicks don't work
-   - No edit/delete
-   - No show/hide toggle
-   
-### Other Beta8 Issues
-2. Tab pinning/muting have no UI yet (backend ready)
-3. Speed dial only shows recent bookmarks (not most visited)
-4. Reader mode may fail on some complex sites
-5. Bookmark folders not visible in UI
-
-### General Issues
-1. Some GTK deprecation warnings
-2. No custom master password UI
-3. No system keychain integration yet
-4. No extension support yet
-
----
-
-## 📊 Progress Tracking
-
-### Version 1.0 Goals
-- [x] Core browser functionality (100%)
-- [x] Password manager (100%)
-- [x] Reader mode & screenshots (100%)
-- [x] **Bookmarks system (100%)**
-- [x] **Extensions support (95%)**
-- [x] Visual polish (85%)
-- [ ] Tab features (60% - UI pending)
-- [ ] Privacy features (25% - via uBlock)
-- [ ] RPM packaging (needs update for Beta 12)
-
-### Overall Completion
-**Estimated: 85%** for a "complete" browser experience
-*(Up from 70% due to extension support!)*
-
-**What's Working Great**:
-- Core browsing ✅
-- Password management ✅
-- Reader mode & screenshots ✅
-- Bookmarks system ✅
-- **WebExtension support ✅**
-- Visual styling ✅
-
-**What Needs Polish**:
-- UI sizing/spacing ⚠️ (bookmarks bar too large, double logo)
-- Tab UI features ⚠️
-
-**What Needs Work**:
-- Privacy features (enhanced by extensions now)
-- Sync/cloud ❌
-- RPM packaging update ⚠️
-
----
-
-## 🎯 Recommended Next Steps
-
-### For Beta12 (UI Polish - Next Session):
-**PRIORITY 1: UI Fixes (1-2 hours)**
-1. Fix bookmarks bar size (too large, make more compact)
-2. Fix double dog logo in upper left corner
-3. Review UI for other spacing/sizing issues
-4. Test across different window sizes
-
-**PRIORITY 2: Build Beta 12 RPM (1 hour)**
-5. Update version to 1.0.1-beta12
-6. Build new RPM with all fixes and WebExtension support
-7. Test installation on clean system
-8. Update release notes with extension support
-
-**Estimated Time**: 2-3 hours total
-
-### For Beta13 (Future):
-1. Tab pinning visual indicators
-2. Tab mute button UI
-3. Extension store/marketplace UI
-4. Reader mode dark theme
-5. More extension API support
-
-**Estimated Time**: 4-6 hours
-
----
-
-## 💡 Feature Ideas (Brainstorm)
-
-### User-Requested
-- Split-screen browsing
-- Vertical tabs option
-- Container tabs (Firefox-style)
-- Custom search engines
-- Download scheduler
-- Session restore
-- Auto-refresh pages
-- Weather in toolbar
-- Calculator in toolbar
-- Notes sidebar
-
-### Technical Improvements
-- Faster startup time
-- Better memory management
-- WebRTC support enhancements
-- Hardware acceleration
-- Battery optimization
-- Update mechanism
-
-### Competitive Features
-- Chrome extension compatibility
-- Firefox container tabs
-- Safari privacy report
-- Vivaldi customization level
-- Arc browser spaces
-- Brave rewards (optional)
-
----
-
-## 📝 Notes
-
-### What Makes Braya Special
-- **Beautiful UI**: Modern, polished design
-- **Customization**: 60+ options (Vivaldi-level)
-- **Security**: AES-256 password encryption
-- **Privacy-focused**: No tracking, local-first
-- **Fast**: WebKit engine performance
-- **Native**: GTK4, feels like part of the system
-- **Open Source**: Transparent development
-
-### Target Audience
-- Linux users who want Chrome features
-- Privacy-conscious users
-- Power users who want customization
-- Developers who need devtools
-- People tired of bloated browsers
-
-### Success Metrics
-- Daily active users
-- Extension ecosystem growth
-- Community contributions
-- Performance benchmarks
-- User satisfaction scores
-
----
-
-**Current State**: Beta11 - WebExtension support COMPLETE! 🎉
-**Next Milestone**: Beta12 - UI Polish & new RPM release
-**Big Achievement**: Extension support working (uBlock Origin, Port Authority, etc.)!
-
-Last session accomplished: **Full WebExtension API with working extensions!** 🚀
-
-**NEXT SESSION: UI fixes (bookmarks bar size, double logo) and Beta 12 RPM!** 🎯
+**Notes:**
+- Use Ctrl+D to bookmark current page
+- Use Ctrl+B to toggle sidebar
+- Extension installation: Download .xpi/.crx files to auto-install
+- Theme presets available in Settings → Appearance

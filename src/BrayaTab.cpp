@@ -8,6 +8,8 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <algorithm>
+#include <algorithm>
 #include <sys/stat.h>
 
 BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, BrayaExtensionManager* extMgr)
@@ -44,6 +46,8 @@ BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, B
     g_signal_connect(webView, "notify::uri", G_CALLBACK(onUriChanged), this);
     g_signal_connect(webView, "notify::favicon", G_CALLBACK(onFaviconChanged), this);
     g_signal_connect(webView, "web-process-terminated", G_CALLBACK(onWebProcessCrashed), this);
+    g_signal_connect(webView, "create", G_CALLBACK(onCreateNewWindow), this);
+    g_signal_connect(webView, "decide-policy", G_CALLBACK(onDecidePolicy), this);
     
     // Load URL - handle about:braya
     if (url && strlen(url) > 0) {
@@ -62,6 +66,19 @@ BrayaTab::~BrayaTab() {
     // Disconnect all signals before destruction
     if (webView && WEBKIT_IS_WEB_VIEW(webView)) {
         g_signal_handlers_disconnect_by_data(webView, this);
+    }
+
+    if (autofillPopover) {
+        gtk_widget_unparent(autofillPopover);
+        autofillPopover = nullptr;
+    }
+    if (autofillToast) {
+        gtk_widget_unparent(autofillToast);
+        autofillToast = nullptr;
+    }
+    if (toastTimerSource != 0) {
+        g_source_remove(toastTimerSource);
+        toastTimerSource = 0;
     }
     
     if (favicon) {
@@ -85,14 +102,35 @@ void BrayaTab::onLoadChanged(WebKitWebView* webView, WebKitLoadEvent loadEvent, 
             tab->isLoading = false;
 
             // Force favicon check after page loads
-            GdkTexture* favicon = webkit_web_view_get_favicon(webView);
-            if (favicon && GDK_IS_TEXTURE(favicon)) {
-                std::cout << "🎯 Forcing favicon update on load finish" << std::endl;
-                if (tab->favicon) {
-                    g_object_unref(tab->favicon);
-                    tab->favicon = nullptr;
+            // First check cache
+            if (tab->faviconGetCallback && !tab->url.empty()) {
+                GdkTexture* cachedFavicon = tab->faviconGetCallback(tab->url);
+                if (cachedFavicon && GDK_IS_TEXTURE(cachedFavicon)) {
+                    std::cout << "📦 Using cached favicon on load finish" << std::endl;
+                    if (tab->favicon) {
+                        g_object_unref(tab->favicon);
+                        tab->favicon = nullptr;
+                    }
+                    tab->favicon = GDK_TEXTURE(g_object_ref(cachedFavicon));
                 }
-                tab->favicon = GDK_TEXTURE(g_object_ref(favicon));
+            }
+
+            // If no cache hit, try to get from WebKit
+            if (!tab->favicon) {
+                GdkTexture* favicon = webkit_web_view_get_favicon(webView);
+                if (favicon && GDK_IS_TEXTURE(favicon)) {
+                    std::cout << "🎯 Forcing favicon update on load finish" << std::endl;
+                    if (tab->favicon) {
+                        g_object_unref(tab->favicon);
+                        tab->favicon = nullptr;
+                    }
+                    tab->favicon = GDK_TEXTURE(g_object_ref(favicon));
+
+                    // Cache it
+                    if (tab->faviconCacheCallback && !tab->url.empty()) {
+                        tab->faviconCacheCallback(tab->url, favicon);
+                    }
+                }
             }
 
             // Inject extension content scripts
@@ -151,25 +189,47 @@ void BrayaTab::onUriChanged(WebKitWebView* webView, GParamSpec* pspec, gpointer 
 
 void BrayaTab::onFaviconChanged(WebKitWebView* webView, GParamSpec* pspec, gpointer userData) {
     if (!userData || !webView || !WEBKIT_IS_WEB_VIEW(webView)) return;
-    
+
     BrayaTab* tab = static_cast<BrayaTab*>(userData);
     if (!tab) return;
-    
+
     try {
-        // Get favicon
+        // First check if we have a cached favicon for this URL
+        if (tab->faviconGetCallback && !tab->url.empty()) {
+            GdkTexture* cachedFavicon = tab->faviconGetCallback(tab->url);
+            if (cachedFavicon && GDK_IS_TEXTURE(cachedFavicon)) {
+                std::cout << "📦 Using cached favicon for tab " << tab->id << std::endl;
+
+                if (tab->favicon) {
+                    g_object_unref(tab->favicon);
+                    tab->favicon = nullptr;
+                }
+                tab->favicon = GDK_TEXTURE(g_object_ref(cachedFavicon));
+                tab->updateButton();
+                return;
+            }
+        }
+
+        // Get favicon from WebKit
         GdkTexture* newFavicon = webkit_web_view_get_favicon(webView);
         std::cout << "🎨 Favicon signal for tab " << tab->id << ": " << (newFavicon ? "FOUND" : "NULL") << std::endl;
-        
+
         if (newFavicon && GDK_IS_TEXTURE(newFavicon)) {
             int width = gdk_texture_get_width(newFavicon);
             int height = gdk_texture_get_height(newFavicon);
             std::cout << "✅ Valid favicon texture: " << width << "x" << height << std::endl;
-            
+
             if (tab->favicon) {
                 g_object_unref(tab->favicon);
                 tab->favicon = nullptr;
             }
             tab->favicon = GDK_TEXTURE(g_object_ref(newFavicon));
+
+            // Cache the favicon for future use
+            if (tab->faviconCacheCallback && !tab->url.empty()) {
+                tab->faviconCacheCallback(tab->url, newFavicon);
+            }
+
             tab->updateButton();
         } else {
             std::cout << "❌ Favicon not ready, will retry on load finish" << std::endl;
@@ -188,7 +248,7 @@ void BrayaTab::updateButton() {
 
     try {
         // Get the icon box from the tab button
-        GtkWidget* iconBox = GTK_WIDGET(g_object_get_data(G_OBJECT(tabButton), "icon-box"));
+        GtkWidget* iconBox = GTK_WIDGET(g_object_get_data(G_OBJECT(tabButton), "favicon-box"));
         if (!iconBox || !GTK_IS_BOX(iconBox)) {
             std::cerr << "No icon box found!" << std::endl;
             return;
@@ -350,6 +410,99 @@ std::string BrayaTab::getResourcePath(const std::string& filename) {
     return "/usr/share/braya-browser/resources/" + filename;
 }
 
+// Handle new window/popup requests
+GtkWidget* BrayaTab::onCreateNewWindow(WebKitWebView* webView, WebKitNavigationAction* navigation, gpointer userData) {
+    BrayaTab* tab = static_cast<BrayaTab*>(userData);
+
+    std::cout << "🪟 New window/tab requested - " << std::flush;
+
+    // Get the navigation request URI
+    WebKitURIRequest* request = webkit_navigation_action_get_request(navigation);
+    const gchar* uri = webkit_uri_request_get_uri(request);
+
+    if (uri && tab->newTabCallback) {
+        std::cout << "opening in new tab: " << uri << std::endl;
+        // Open in new tab using callback
+        tab->newTabCallback(uri);
+    } else if (uri) {
+        std::cout << "opening URL in same tab (no callback): " << uri << std::endl;
+        // Fallback: navigate in current tab
+        webkit_web_view_load_uri(webView, uri);
+    } else {
+        std::cout << "no URI provided, ignoring" << std::endl;
+    }
+
+    // Return nullptr to tell WebKit we handled it
+    return nullptr;
+}
+
+// Handle navigation policy decisions (for opening links in new tabs)
+gboolean BrayaTab::onDecidePolicy(WebKitWebView* webView, WebKitPolicyDecision* decision,
+                                   WebKitPolicyDecisionType type, gpointer userData) {
+    BrayaTab* tab = static_cast<BrayaTab*>(userData);
+
+    // Only handle navigation actions
+    if (type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION) {
+        webkit_policy_decision_use(decision);
+        return FALSE;
+    }
+
+    WebKitNavigationPolicyDecision* navDecision = WEBKIT_NAVIGATION_POLICY_DECISION(decision);
+    WebKitNavigationAction* navAction = webkit_navigation_policy_decision_get_navigation_action(navDecision);
+
+    // Get navigation type
+    WebKitNavigationType navType = webkit_navigation_action_get_navigation_type(navAction);
+
+    // Only intercept link clicks (not form submissions, reloads, etc.)
+    if (navType != WEBKIT_NAVIGATION_TYPE_LINK_CLICKED) {
+        webkit_policy_decision_use(decision);
+        return FALSE;
+    }
+
+    // Get the target URI
+    WebKitURIRequest* request = webkit_navigation_action_get_request(navAction);
+    const gchar* uri = webkit_uri_request_get_uri(request);
+
+    if (!uri || !tab->newTabCallback) {
+        // No URI or no callback - allow default behavior
+        webkit_policy_decision_use(decision);
+        return FALSE;
+    }
+
+    // Get modifier keys and mouse button
+    guint modifiers = webkit_navigation_action_get_modifiers(navAction);
+    guint mouseButton = webkit_navigation_action_get_mouse_button(navAction);
+
+    bool ctrlPressed = (modifiers & GDK_CONTROL_MASK);
+    bool shiftPressed = (modifiers & GDK_SHIFT_MASK);
+    bool middleClick = (mouseButton == 2);  // Middle mouse button
+
+    std::cout << "🔍 Link click detected - button: " << mouseButton
+              << ", ctrl: " << ctrlPressed
+              << ", shift: " << shiftPressed << std::endl;
+
+    // Open in new tab if:
+    // - Middle click
+    // - Ctrl+Click
+    // - Regular left click (mouseButton == 1 or 0, as button might be 0 for some clicks)
+    if (middleClick || ctrlPressed || (mouseButton <= 1 && !shiftPressed)) {
+        std::cout << "🔗 Opening link in new tab: " << uri << std::endl;
+
+        // Ignore the navigation in current tab
+        webkit_policy_decision_ignore(decision);
+
+        // Open in new tab via callback
+        tab->newTabCallback(uri);
+
+        return TRUE;  // We handled it
+    }
+
+    // For Shift+Click or other cases, use default behavior (same tab)
+    std::cout << "↪️  Opening link in same tab: " << uri << std::endl;
+    webkit_policy_decision_use(decision);
+    return FALSE;
+}
+
 void BrayaTab::setupPasswordManager() {
     if (!userContentManager || !passwordManager) return;
 
@@ -390,6 +543,10 @@ void BrayaTab::injectPasswordScript() {
     std::stringstream buffer;
     buffer << scriptFile.rdbuf();
     std::string scriptContent = buffer.str();
+    std::string configScript = "window.BrayaPasswordConfig = { multiStep: " +
+        std::string((passwordManager && passwordManager->isMultiStepCaptureEnabled()) ? "true" : "false") +
+        " };";
+    scriptContent = configScript + "\n" + scriptContent;
     scriptFile.close();
 
     // Create and add user script
@@ -448,6 +605,7 @@ void BrayaTab::autoFillPasswords() {
     );
 
     std::cout << "✓ Auto-filled password for " << entry.username << " on tab " << id << std::endl;
+    showAutofillToast("Auto-filled " + (entry.username.empty() ? std::string("login") : entry.username));
 }
 
 void BrayaTab::onPasswordCaptured(WebKitUserContentManager* manager, JSCValue* value, gpointer userData) {
@@ -468,64 +626,222 @@ void BrayaTab::onPasswordCaptured(WebKitUserContentManager* manager, JSCValue* v
     char* password = jsc_value_to_string(passwordValue);
 
     if (url && username && password) {
-        std::cout << "🔑 Password captured for " << username << " at " << url << std::endl;
+        if (tab->passwordManager->isSavingSuppressedForUrl(url)) {
+            g_free(url);
+            g_free(username);
+            g_free(password);
+            return;
+        }
 
-        // Create "Save password?" dialog
+        auto existing = tab->passwordManager->getPasswordsForUrl(url);
+        bool hasMatch = std::any_of(existing.begin(), existing.end(), [&](const PasswordEntry& entry) {
+            return entry.username == username;
+        });
+        bool hasExisting = !existing.empty();
+
         GtkWidget* dialog = gtk_window_new();
-        gtk_window_set_title(GTK_WINDOW(dialog), "Save Password?");
-        gtk_window_set_default_size(GTK_WINDOW(dialog), 400, 150);
+        gtk_window_set_title(GTK_WINDOW(dialog), hasMatch ? "Update saved password?" : "Save password?");
         gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+        gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
 
-        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
-        gtk_widget_set_margin_start(box, 20);
-        gtk_widget_set_margin_end(box, 20);
-        gtk_widget_set_margin_top(box, 20);
-        gtk_widget_set_margin_bottom(box, 20);
-        gtk_window_set_child(GTK_WINDOW(dialog), box);
+        GtkWidget* outerBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+        gtk_widget_add_css_class(outerBox, "dialog-body");
+        gtk_window_set_child(GTK_WINDOW(dialog), outerBox);
 
-        // Message
-        GtkWidget* label = gtk_label_new(nullptr);
-        std::string message = "Save password for <b>" + std::string(username) + "</b>?";
-        gtk_label_set_markup(GTK_LABEL(label), message.c_str());
-        gtk_box_append(GTK_BOX(box), label);
+        GtkWidget* messageBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_widget_set_margin_bottom(messageBox, 6);
+        gtk_box_append(GTK_BOX(outerBox), messageBox);
+
+        GtkWidget* message = gtk_label_new(nullptr);
+        std::string messageText = hasMatch
+            ? "Update saved password for <b>" + std::string(username) + "</b>?"
+            : "Save password for <b>" + std::string(username) + "</b>?";
+        gtk_label_set_markup(GTK_LABEL(message), messageText.c_str());
+        gtk_box_append(GTK_BOX(messageBox), message);
 
         GtkWidget* urlLabel = gtk_label_new(url);
         gtk_widget_add_css_class(urlLabel, "dim-label");
-        gtk_box_append(GTK_BOX(box), urlLabel);
+        gtk_label_set_ellipsize(GTK_LABEL(urlLabel), PANGO_ELLIPSIZE_MIDDLE);
+        gtk_box_append(GTK_BOX(messageBox), urlLabel);
 
-        // Buttons
-        GtkWidget* buttonBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-        gtk_widget_set_halign(buttonBox, GTK_ALIGN_END);
-        gtk_box_append(GTK_BOX(box), buttonBox);
+        // Show last updated timestamp and password mismatch warning if updating
+        if (hasMatch) {
+            auto it = std::find_if(existing.begin(), existing.end(), [&](const PasswordEntry& e) {
+                return e.username == username;
+            });
 
-        GtkWidget* cancelBtn = gtk_button_new_with_label("Not Now");
-        g_signal_connect_swapped(cancelBtn, "clicked", G_CALLBACK(gtk_window_close), dialog);
-        gtk_box_append(GTK_BOX(buttonBox), cancelBtn);
+            if (it != existing.end()) {
+                // Show last updated time
+                std::string timeText = "Last updated: ";
+                if (it->updatedAt > 0) {
+                    timeText += tab->passwordManager->formatTimestampRelative(it->updatedAt);
+                } else {
+                    timeText += "Never";
+                }
+                GtkWidget* timeLabel = gtk_label_new(timeText.c_str());
+                gtk_widget_add_css_class(timeLabel, "dim-label");
+                gtk_box_append(GTK_BOX(messageBox), timeLabel);
 
-        GtkWidget* saveBtn = gtk_button_new_with_label("Save");
-        gtk_widget_add_css_class(saveBtn, "suggested-action");
+                // Warn if passwords differ
+                if (it->password != password) {
+                    GtkWidget* warningLabel = gtk_label_new("⚠ This password differs from your saved password");
+                    gtk_widget_add_css_class(warningLabel, "warning");
+                    gtk_box_append(GTK_BOX(messageBox), warningLabel);
+                }
+            }
+        }
 
-        // Store data for save callback
-        g_object_set_data_full(G_OBJECT(saveBtn), "url", g_strdup(url), g_free);
-        g_object_set_data_full(G_OBJECT(saveBtn), "username", g_strdup(username), g_free);
-        g_object_set_data_full(G_OBJECT(saveBtn), "password", g_strdup(password), g_free);
-        g_object_set_data(G_OBJECT(saveBtn), "manager", tab->passwordManager);
-        g_object_set_data(G_OBJECT(saveBtn), "dialog", dialog);
+        GtkWidget* credsBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_box_append(GTK_BOX(outerBox), credsBox);
 
-        g_signal_connect(saveBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
+        GtkWidget* userRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        gtk_box_append(GTK_BOX(credsBox), userRow);
+        gtk_box_append(GTK_BOX(userRow), gtk_label_new("Username"));
+        GtkWidget* userEntry = gtk_entry_new();
+        gtk_editable_set_text(GTK_EDITABLE(userEntry), username);
+        gtk_widget_set_hexpand(userEntry, TRUE);
+        gtk_box_append(GTK_BOX(userRow), userEntry);
+
+        GtkWidget* passRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        gtk_box_append(GTK_BOX(credsBox), passRow);
+        gtk_box_append(GTK_BOX(passRow), gtk_label_new("Password"));
+        GtkWidget* passEntry = gtk_entry_new();
+        gtk_entry_set_visibility(GTK_ENTRY(passEntry), FALSE);
+        gtk_editable_set_text(GTK_EDITABLE(passEntry), password);
+        gtk_widget_set_hexpand(passEntry, TRUE);
+        gtk_box_append(GTK_BOX(passRow), passEntry);
+
+        GtkWidget* actionBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_box_append(GTK_BOX(outerBox), actionBox);
+
+        GtkWidget* addRadio = gtk_check_button_new_with_label(hasExisting ? "Add as new login" : "Save password");
+        gtk_check_button_set_group(GTK_CHECK_BUTTON(addRadio), GTK_CHECK_BUTTON(addRadio));
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(addRadio), TRUE);
+        gtk_box_append(GTK_BOX(actionBox), addRadio);
+
+        GtkWidget* updateRadio = nullptr;
+        GtkWidget* updateDropdown = nullptr;
+        std::vector<std::string>* existingUsernames = nullptr;
+
+        if (hasExisting) {
+            updateRadio = gtk_check_button_new_with_label("Update an existing login");
+            gtk_check_button_set_group(GTK_CHECK_BUTTON(updateRadio), GTK_CHECK_BUTTON(addRadio));
+            gtk_box_append(GTK_BOX(actionBox), updateRadio);
+
+            existingUsernames = new std::vector<std::string>();
+            existingUsernames->reserve(existing.size());
+
+            GPtrArray* labels = g_ptr_array_new_with_free_func(g_free);
+            for (const auto& entry : existing) {
+                std::string label = entry.username.empty() ? "(no username)" : entry.username;
+                existingUsernames->push_back(entry.username);
+                g_ptr_array_add(labels, g_strdup(label.c_str()));
+            }
+            g_ptr_array_add(labels, nullptr);
+
+            updateDropdown = gtk_drop_down_new_from_strings(reinterpret_cast<const char* const*>(labels->pdata));
+            g_ptr_array_free(labels, TRUE);
+            gtk_widget_set_sensitive(updateDropdown, FALSE);
+            gtk_box_append(GTK_BOX(actionBox), updateDropdown);
+
+            g_signal_connect(updateRadio, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer data) {
+                GtkWidget* dropdown = GTK_WIDGET(data);
+                gtk_widget_set_sensitive(dropdown, gtk_toggle_button_get_active(btn));
+            }), updateDropdown);
+        }
+
+        GtkWidget* buttonRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+        gtk_widget_set_halign(buttonRow, GTK_ALIGN_END);
+        gtk_box_append(GTK_BOX(outerBox), buttonRow);
+
+        GtkWidget* neverBtn = gtk_button_new_with_label("Never for this site");
+        gtk_widget_add_css_class(neverBtn, "destructive-action");
+        g_object_set_data(G_OBJECT(neverBtn), "manager", tab->passwordManager);
+        g_object_set_data_full(G_OBJECT(neverBtn), "url", g_strdup(url), g_free);
+        g_object_set_data(G_OBJECT(neverBtn), "dialog", dialog);
+        g_signal_connect(neverBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer) {
             auto* mgr = static_cast<BrayaPasswordManager*>(g_object_get_data(G_OBJECT(btn), "manager"));
-            const char* url = (const char*)g_object_get_data(G_OBJECT(btn), "url");
-            const char* user = (const char*)g_object_get_data(G_OBJECT(btn), "username");
-            const char* pass = (const char*)g_object_get_data(G_OBJECT(btn), "password");
+            const char* siteUrl = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "url"));
             GtkWidget* dlg = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
-
-            if (mgr && url && user && pass) {
-                mgr->savePassword(url, user, pass);
+            if (mgr && siteUrl) {
+                mgr->blockSavingForUrl(siteUrl);
             }
             gtk_window_close(GTK_WINDOW(dlg));
         }), nullptr);
+        gtk_box_append(GTK_BOX(buttonRow), neverBtn);
 
-        gtk_box_append(GTK_BOX(buttonBox), saveBtn);
+        GtkWidget* dismissBtn = gtk_button_new_with_label("Not now");
+        gtk_box_append(GTK_BOX(buttonRow), dismissBtn);
+
+        GtkWidget* confirmBtn = gtk_button_new_with_label(hasExisting ? "Save / Update" : "Save");
+        gtk_widget_add_css_class(confirmBtn, "suggested-action");
+        gtk_box_append(GTK_BOX(buttonRow), confirmBtn);
+
+        g_signal_connect_swapped(dismissBtn, "clicked", G_CALLBACK(gtk_window_close), dialog);
+
+        g_object_set_data_full(G_OBJECT(confirmBtn), "url", g_strdup(url), g_free);
+        g_object_set_data_full(G_OBJECT(confirmBtn), "username", g_strdup(username), g_free);
+        g_object_set_data_full(G_OBJECT(confirmBtn), "password", g_strdup(password), g_free);
+        g_object_set_data(G_OBJECT(confirmBtn), "manager", tab->passwordManager);
+        g_object_set_data(G_OBJECT(confirmBtn), "dialog", dialog);
+        g_object_set_data(G_OBJECT(confirmBtn), "add_radio", addRadio);
+        g_object_set_data(G_OBJECT(confirmBtn), "update_radio", updateRadio);
+        g_object_set_data(G_OBJECT(confirmBtn), "dropdown", updateDropdown);
+        g_object_set_data(G_OBJECT(confirmBtn), "username_entry", userEntry);
+        g_object_set_data(G_OBJECT(confirmBtn), "password_entry", passEntry);
+        if (existingUsernames) {
+            g_object_set_data_full(G_OBJECT(confirmBtn), "existing_usernames", existingUsernames,
+                +[](gpointer data) {
+                    delete static_cast<std::vector<std::string>*>(data);
+                });
+        }
+
+        g_signal_connect(confirmBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
+            auto* mgr = static_cast<BrayaPasswordManager*>(g_object_get_data(G_OBJECT(btn), "manager"));
+            if (!mgr) {
+                return;
+            }
+            GtkWidget* dlg = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
+            GtkEntry* userEntry = GTK_ENTRY(g_object_get_data(G_OBJECT(btn), "username_entry"));
+            GtkEntry* passEntry = GTK_ENTRY(g_object_get_data(G_OBJECT(btn), "password_entry"));
+            const char* updatedUsername = userEntry ? gtk_editable_get_text(GTK_EDITABLE(userEntry)) : nullptr;
+            const char* updatedPassword = passEntry ? gtk_editable_get_text(GTK_EDITABLE(passEntry)) : nullptr;
+            const char* url = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "url"));
+            if (!url) {
+                return;
+            }
+
+            if (!mgr->requestUnlock(GTK_WINDOW(dlg))) {
+                return;
+            }
+
+            const char* defaultUsername = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "username"));
+            const char* defaultPassword = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "password"));
+            const char* finalUsername = (updatedUsername && strlen(updatedUsername) > 0) ? updatedUsername : defaultUsername;
+            const char* finalPassword = (updatedPassword && strlen(updatedPassword) > 0) ? updatedPassword : defaultPassword;
+            if (!finalUsername || !finalPassword) {
+                gtk_window_close(GTK_WINDOW(dlg));
+                return;
+            }
+
+            GtkToggleButton* updateToggle = GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(btn), "update_radio"));
+            GtkDropDown* dropdown = GTK_DROP_DOWN(g_object_get_data(G_OBJECT(btn), "dropdown"));
+            auto* usernames = static_cast<std::vector<std::string>*>(g_object_get_data(G_OBJECT(btn), "existing_usernames"));
+
+            if (updateToggle && gtk_toggle_button_get_active(updateToggle) &&
+                dropdown && usernames && !usernames->empty()) {
+                guint selected = gtk_drop_down_get_selected(dropdown);
+                if (selected >= usernames->size()) {
+                    selected = 0;
+                }
+                const std::string& original = (*usernames)[selected];
+                mgr->updatePassword(url, original, finalUsername, finalPassword);
+            } else {
+                mgr->savePassword(url, finalUsername, finalPassword);
+            }
+
+            gtk_window_close(GTK_WINDOW(dlg));
+        }), nullptr);
 
         gtk_window_present(GTK_WINDOW(dialog));
     }
@@ -535,77 +851,70 @@ void BrayaTab::onPasswordCaptured(WebKitUserContentManager* manager, JSCValue* v
     g_free(password);
 }
 
-void BrayaTab::showAutofillSuggestions() {
+void BrayaTab::showAutofillSuggestions(const GdkRectangle* anchorRect) {
     if (!passwordManager || url.empty()) return;
 
-    // Get saved passwords for current URL
     auto passwords = passwordManager->getPasswordsForUrl(url);
-
     if (passwords.empty()) {
-        return; // No saved passwords for this site
-    }
-
-    // If only one password, auto-fill immediately
-    if (passwords.size() == 1) {
-        autoFillPasswords();
         return;
     }
 
-    // Multiple passwords - show selection dialog (Safari-like)
-    GtkWidget* dialog = gtk_window_new();
-    gtk_window_set_title(GTK_WINDOW(dialog), "Choose Account");
-    gtk_window_set_default_size(GTK_WINDOW(dialog), 400, 300);
-    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    if (autofillPopover) {
+        gtk_widget_unparent(autofillPopover);
+        autofillPopover = nullptr;
+    }
+    if (autofillToast) {
+        gtk_widget_unparent(autofillToast);
+        autofillToast = nullptr;
+    }
 
-    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_widget_set_margin_start(box, 20);
-    gtk_widget_set_margin_end(box, 20);
-    gtk_widget_set_margin_top(box, 20);
-    gtk_widget_set_margin_bottom(box, 20);
-    gtk_window_set_child(GTK_WINDOW(dialog), box);
+    GtkWidget* popover = gtk_popover_new();
+    gtk_popover_set_has_arrow(GTK_POPOVER(popover), TRUE);
+    gtk_popover_set_autohide(GTK_POPOVER(popover), TRUE);
+    gtk_widget_set_parent(popover, GTK_WIDGET(webView));
+    if (anchorRect) {
+        gtk_popover_set_pointing_to(GTK_POPOVER(popover), anchorRect);
+    }
 
-    GtkWidget* label = gtk_label_new("Select an account to autofill:");
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_margin_start(box, 10);
+    gtk_widget_set_margin_end(box, 10);
+    gtk_widget_set_margin_top(box, 8);
+    gtk_widget_set_margin_bottom(box, 8);
+    gtk_popover_set_child(GTK_POPOVER(popover), box);
+
+    GtkWidget* label = gtk_label_new("Choose an account to autofill");
+    gtk_widget_add_css_class(label, "dim-label");
     gtk_widget_set_halign(label, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(box), label);
 
-    // Scrolled window for account list
-    GtkWidget* scrolled = gtk_scrolled_window_new();
-    gtk_widget_set_vexpand(scrolled, TRUE);
-    gtk_box_append(GTK_BOX(box), scrolled);
+    // Store fill buttons for keyboard navigation
+    std::vector<GtkWidget*>* fillButtons = new std::vector<GtkWidget*>();
+    int* selectedIndex = new int(0);
 
-    GtkWidget* listBox = gtk_list_box_new();
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), listBox);
-
-    // Add account entries
     for (const auto& entry : passwords) {
-        GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-        gtk_widget_set_margin_start(row, 10);
-        gtk_widget_set_margin_end(row, 10);
-        gtk_widget_set_margin_top(row, 10);
-        gtk_widget_set_margin_bottom(row, 10);
+        GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        gtk_box_append(GTK_BOX(box), row);
 
-        GtkWidget* accountLabel = gtk_label_new(entry.username.c_str());
-        gtk_widget_set_halign(accountLabel, GTK_ALIGN_START);
-        gtk_widget_set_hexpand(accountLabel, TRUE);
-        gtk_box_append(GTK_BOX(row), accountLabel);
+        GtkWidget* userLabel = gtk_label_new(entry.username.c_str());
+        gtk_widget_set_hexpand(userLabel, TRUE);
+        gtk_widget_set_halign(userLabel, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(row), userLabel);
 
         GtkWidget* fillBtn = gtk_button_new_with_label("Fill");
         gtk_widget_add_css_class(fillBtn, "suggested-action");
-
-        // Store data for callback
         g_object_set_data_full(G_OBJECT(fillBtn), "username", g_strdup(entry.username.c_str()), g_free);
         g_object_set_data_full(G_OBJECT(fillBtn), "password", g_strdup(entry.password.c_str()), g_free);
         g_object_set_data(G_OBJECT(fillBtn), "tab", this);
-        g_object_set_data(G_OBJECT(fillBtn), "dialog", dialog);
+        g_object_set_data(G_OBJECT(fillBtn), "popover", popover);
 
         g_signal_connect(fillBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
             auto* tab = static_cast<BrayaTab*>(g_object_get_data(G_OBJECT(btn), "tab"));
-            const char* username = (const char*)g_object_get_data(G_OBJECT(btn), "username");
-            const char* password = (const char*)g_object_get_data(G_OBJECT(btn), "password");
-            GtkWidget* dlg = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
+            GtkWidget* pop = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "popover"));
+            const char* username = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "username"));
+            const char* password = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "password"));
 
             if (tab && username && password) {
-                // Escape quotes for JavaScript
                 auto escapeJs = [](const std::string& str) {
                     std::string escaped = str;
                     size_t pos = 0;
@@ -633,23 +942,168 @@ void BrayaTab::showAutofillSuggestions() {
                 std::cout << "✓ Filled password for " << username << std::endl;
             }
 
-            gtk_window_close(GTK_WINDOW(dlg));
+            if (pop && GTK_IS_POPOVER(pop)) {
+                gtk_popover_popdown(GTK_POPOVER(pop));
+            }
+            if (tab) {
+                tab->showAutofillToast(std::string("Filled ") + (username ? username : "login"),
+                                      tab->url, username ? username : "");
+            }
         }), nullptr);
 
         gtk_box_append(GTK_BOX(row), fillBtn);
-        gtk_list_box_append(GTK_LIST_BOX(listBox), row);
+
+        // Add to buttons vector for keyboard navigation
+        fillButtons->push_back(fillBtn);
     }
 
-    // Cancel button
-    GtkWidget* buttonBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_widget_set_halign(buttonBox, GTK_ALIGN_END);
-    gtk_box_append(GTK_BOX(box), buttonBox);
+    // Give focus to the first button
+    if (!fillButtons->empty()) {
+        gtk_widget_grab_focus((*fillButtons)[0]);
+    }
 
-    GtkWidget* cancelBtn = gtk_button_new_with_label("Cancel");
-    g_signal_connect_swapped(cancelBtn, "clicked", G_CALLBACK(gtk_window_close), dialog);
-    gtk_box_append(GTK_BOX(buttonBox), cancelBtn);
+    // Store buttons vector and selected index in popover data for cleanup
+    g_object_set_data_full(G_OBJECT(popover), "fill-buttons", fillButtons,
+        +[](gpointer data) { delete static_cast<std::vector<GtkWidget*>*>(data); });
+    g_object_set_data_full(G_OBJECT(popover), "selected-index", selectedIndex,
+        +[](gpointer data) { delete static_cast<int*>(data); });
 
-    gtk_window_present(GTK_WINDOW(dialog));
+    // Add keyboard navigation
+    GtkEventController* keyController = gtk_event_controller_key_new();
+    g_signal_connect(keyController, "key-pressed", G_CALLBACK(+[](
+        GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) -> gboolean {
+
+        GtkWidget* popover = GTK_WIDGET(data);
+        auto* buttons = static_cast<std::vector<GtkWidget*>*>(g_object_get_data(G_OBJECT(popover), "fill-buttons"));
+        int* selectedIdx = static_cast<int*>(g_object_get_data(G_OBJECT(popover), "selected-index"));
+
+        if (!buttons || buttons->empty() || !selectedIdx) return FALSE;
+
+        if (keyval == GDK_KEY_Down || keyval == GDK_KEY_Up) {
+            // Move selection
+            if (keyval == GDK_KEY_Down) {
+                *selectedIdx = (*selectedIdx + 1) % buttons->size();
+            } else {
+                *selectedIdx = (*selectedIdx - 1 + buttons->size()) % buttons->size();
+            }
+
+            // Give focus to new selection
+            gtk_widget_grab_focus((*buttons)[*selectedIdx]);
+            return TRUE;
+        }
+        else if (keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter) {
+            // Activate selected button by emitting clicked signal
+            g_signal_emit_by_name((*buttons)[*selectedIdx], "clicked");
+            return TRUE;
+        }
+        else if (keyval == GDK_KEY_Escape) {
+            // Close popover
+            gtk_popover_popdown(GTK_POPOVER(popover));
+            return TRUE;
+        }
+
+        return FALSE;
+    }), popover);
+
+    gtk_widget_add_controller(popover, keyController);
+
+    g_signal_connect(popover, "closed", G_CALLBACK(+[](GtkPopover* pop, gpointer data) {
+        auto* tab = static_cast<BrayaTab*>(data);
+        if (tab && tab->autofillPopover == GTK_WIDGET(pop)) {
+            tab->autofillPopover = nullptr;
+        }
+    }), this);
+
+    autofillPopover = popover;
+    gtk_popover_popup(GTK_POPOVER(popover));
+}
+
+void BrayaTab::showAutofillToast(const std::string& message, const std::string& url, const std::string& username) {
+    if (toastTimerSource != 0) {
+        g_source_remove(toastTimerSource);
+        toastTimerSource = 0;
+    }
+    if (autofillToast) {
+        gtk_widget_unparent(autofillToast);
+        autofillToast = nullptr;
+    }
+
+    GtkWidget* parent = tabButton ? tabButton : GTK_WIDGET(webView);
+    if (!parent) {
+        return;
+    }
+
+    GtkWidget* popover = gtk_popover_new();
+    gtk_popover_set_position(GTK_POPOVER(popover), GTK_POS_BOTTOM);
+    gtk_popover_set_has_arrow(GTK_POPOVER(popover), TRUE);
+    gtk_popover_set_autohide(GTK_POPOVER(popover), TRUE);
+    gtk_widget_set_parent(popover, parent);
+
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_start(box, 12);
+    gtk_widget_set_margin_end(box, 12);
+    gtk_widget_set_margin_top(box, 8);
+    gtk_widget_set_margin_bottom(box, 8);
+    gtk_popover_set_child(GTK_POPOVER(popover), box);
+
+    GtkWidget* icon = gtk_label_new("🔐");
+    gtk_box_append(GTK_BOX(box), icon);
+
+    GtkWidget* label = gtk_label_new(message.c_str());
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_widget_set_hexpand(label, TRUE);
+    gtk_box_append(GTK_BOX(box), label);
+
+    // Add "View" button if URL and username are provided
+    if (!url.empty() && !username.empty() && passwordManager) {
+        GtkWidget* viewBtn = gtk_button_new_with_label("View");
+        gtk_widget_add_css_class(viewBtn, "flat");
+        g_object_set_data(G_OBJECT(viewBtn), "password_manager", passwordManager);
+        g_object_set_data_full(G_OBJECT(viewBtn), "url", g_strdup(url.c_str()), g_free);
+        g_object_set_data_full(G_OBJECT(viewBtn), "username", g_strdup(username.c_str()), g_free);
+        g_object_set_data(G_OBJECT(viewBtn), "popover", popover);
+
+        g_signal_connect(viewBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer) {
+            auto* mgr = static_cast<BrayaPasswordManager*>(g_object_get_data(G_OBJECT(btn), "password_manager"));
+            const char* entryUrl = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "url"));
+            const char* entryUser = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "username"));
+            GtkWidget* pop = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "popover"));
+
+            if (mgr && entryUrl && entryUser) {
+                // Close the toast
+                if (pop && GTK_IS_POPOVER(pop)) {
+                    gtk_popover_popdown(GTK_POPOVER(pop));
+                }
+
+                // Open password manager
+                GtkWidget* topLevel = GTK_WIDGET(gtk_widget_get_root(GTK_WIDGET(btn)));
+                if (topLevel && GTK_IS_WINDOW(topLevel)) {
+                    mgr->showPasswordManager(GTK_WINDOW(topLevel));
+                }
+            }
+        }), nullptr);
+
+        gtk_box_append(GTK_BOX(box), viewBtn);
+    }
+
+    autofillToast = popover;
+    gtk_popover_popup(GTK_POPOVER(popover));
+
+    toastTimerSource = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 3,
+        +[](gpointer data) -> gboolean {
+            auto* tab = static_cast<BrayaTab*>(data);
+            if (tab && tab->autofillToast) {
+                gtk_popover_popdown(GTK_POPOVER(tab->autofillToast));
+                gtk_widget_unparent(tab->autofillToast);
+                tab->autofillToast = nullptr;
+            }
+            if (tab) {
+                tab->toastTimerSource = 0;
+            }
+            return G_SOURCE_REMOVE;
+        },
+        this,
+        nullptr);
 }
 
 void BrayaTab::onAutofillRequest(WebKitUserContentManager* manager, JSCValue* value, gpointer userData) {
@@ -658,8 +1112,38 @@ void BrayaTab::onAutofillRequest(WebKitUserContentManager* manager, JSCValue* va
     BrayaTab* tab = static_cast<BrayaTab*>(userData);
     if (!tab || !tab->passwordManager) return;
 
+    GdkRectangle anchorRect{0, 0, 0, 0};
+    bool hasAnchor = false;
+    if (value && jsc_value_is_object(value)) {
+        JSCValue* rectValue = jsc_value_object_get_property(value, "rect");
+        if (rectValue && jsc_value_is_object(rectValue)) {
+            auto getDouble = [](JSCValue* val) -> double {
+                if (!val) {
+                    return 0.0;
+                }
+                double result = jsc_value_to_double(val);
+                g_object_unref(val);
+                return result;
+            };
+
+            double x = getDouble(jsc_value_object_get_property(rectValue, "x"));
+            double y = getDouble(jsc_value_object_get_property(rectValue, "y"));
+            double width = getDouble(jsc_value_object_get_property(rectValue, "width"));
+            double height = getDouble(jsc_value_object_get_property(rectValue, "height"));
+
+            g_object_unref(rectValue);
+
+            double scale = webkit_web_view_get_zoom_level(tab->webView);
+            anchorRect.x = static_cast<int>(x * scale);
+            anchorRect.y = static_cast<int>((y + height) * scale);
+            anchorRect.width = static_cast<int>(std::max(width, 200.0) * scale);
+            anchorRect.height = 1;
+            hasAnchor = true;
+        }
+    }
+
     std::cout << "🔑 Autofill requested for tab " << tab->id << std::endl;
-    tab->showAutofillSuggestions();
+    tab->showAutofillSuggestions(hasAnchor ? &anchorRect : nullptr);
 }
 
 void BrayaTab::onCheckPasswords(WebKitUserContentManager* manager, JSCValue* value, gpointer userData) {

@@ -3,58 +3,30 @@
 
 #include <gtk/gtk.h>
 #include <string>
+#include <vector>
 #include <map>
+
+// Simplified theme structure focusing on CSS variables
+struct ThemeColors {
+    std::string name = "Custom";
+    std::string accentColor = "#00d9ff";      // --braya-accent
+    std::string bgPrimary = "#0a0f14";         // --braya-bg-primary
+    std::string bgSecondary = "#0f1419";       // --braya-bg-secondary
+    std::string bgTertiary = "#1a1f26";        // --braya-bg-tertiary
+    std::string textPrimary = "#e0e6ed";       // --braya-text-primary
+    std::string textSecondary = "#9ca3b0";     // --braya-text-secondary
+};
 
 class BrayaCustomization {
 public:
-    // Color customization structure
+    // Simplified color structure matching CSS variables
     struct Colors {
-        // Sidebar
-        std::string sidebarBg = "#0f1419";
-        std::string sidebarBorder = "rgba(0, 217, 255, 0.15)";
-        std::string sidebarText = "#e0e6ed";
-        std::string sidebarHover = "rgba(0, 217, 255, 0.2)";
-        
-        // Tab bar
-        std::string tabBarBg = "#0f1419";
-        std::string tabActive = "#00d9ff";
-        std::string tabInactive = "#6b7280";
-        std::string tabHover = "rgba(0, 217, 255, 0.3)";
-        std::string tabBorder = "rgba(0, 217, 255, 0.2)";
-        
-        // URL bar
-        std::string urlBarBg = "rgba(0, 0, 0, 0.3)";
-        std::string urlBarText = "#e0e6ed";
-        std::string urlBarBorder = "rgba(0, 217, 255, 0.25)";
-        std::string urlBarFocus = "#00d9ff";
-        std::string urlBarPlaceholder = "#6b7280";
-        
-        // Navigation
-        std::string navBtnBg = "rgba(0, 217, 255, 0.1)";
-        std::string navBtnHover = "rgba(0, 217, 255, 0.25)";
-        std::string navBtnDisabled = "rgba(255, 255, 255, 0.1)";
-        std::string navBtnText = "#00d9ff";
-        
-        // Accents
         std::string accentPrimary = "#00d9ff";
-        std::string accentSecondary = "#0ea5e9";
-        
-        // Window
-        std::string windowBg = "#0a0f14";
-        std::string contentBg = "#0a0f14";
-        
-        // Bookmarks bar
-        std::string bookmarksBg = "rgba(0, 0, 0, 0.2)";
-        std::string bookmarkHover = "rgba(0, 217, 255, 0.2)";
-        
-        // Find bar
-        std::string findBarBg = "rgba(0, 0, 0, 0.4)";
-        std::string findMatchBg = "#00d9ff";
-        
-        // Scrollbar
-        std::string scrollbarTrack = "#1a1f25";
-        std::string scrollbarThumb = "#374151";
-        std::string scrollbarHover = "#4b5563";
+        std::string bgPrimary = "#0a0f14";
+        std::string bgSecondary = "#0f1419";
+        std::string bgTertiary = "#1a1f26";
+        std::string textPrimary = "#e0e6ed";
+        std::string textSecondary = "#9ca3b0";
     };
     
     // Typography structure
@@ -118,19 +90,28 @@ public:
     void show(GtkWindow* parent);
     void applyCustomization();
     std::string generateCustomCSS();
-    
+
+    // Theme preset methods
+    void loadPreset(const std::string& presetName);
+    std::vector<std::string> getAvailablePresets();
+    void setAccentColor(const std::string& hexColor);
+
+    // Apply theme to window
+    void applyTheme(GtkWidget* window);
+
     // Getters
     Colors getColors() const { return colors; }
     Typography getTypography() const { return typography; }
     Layout getLayout() const { return layout; }
     Effects getEffects() const { return effects; }
-    
+    ThemeColors getCurrentTheme() const;
+
     // Setters
     void setColors(const Colors& c) { colors = c; }
     void setTypography(const Typography& t) { typography = t; }
     void setLayout(const Layout& l) { layout = l; }
     void setEffects(const Effects& e) { effects = e; }
-    
+
     void save();
     void load();
     
@@ -139,22 +120,29 @@ private:
     Typography typography;
     Layout layout;
     Effects effects;
-    
+
     GtkWidget* dialog;
     GtkWidget* notebook;
-    
+    GtkCssProvider* cssProvider;
+
+    // Theme presets
+    std::map<std::string, ThemeColors> presets;
+    void initializePresets();
+
     void createDialog(GtkWindow* parent);
     GtkWidget* createColorsTab();
     GtkWidget* createTypographyTab();
     GtkWidget* createLayoutTab();
     GtkWidget* createEffectsTab();
-    
+
     void saveToFile();
     void loadFromFile();
-    
+    std::string getConfigPath();
+    std::string hexToRGB(const std::string& hex);
+
     // Color picker helpers
     GtkWidget* createColorPicker(const std::string& label, std::string* colorVar);
-    
+
     static void onColorChanged(GtkColorButton* button, gpointer data);
     static void onApplyClicked(GtkButton* button, gpointer data);
     static void onCloseClicked(GtkButton* button, gpointer data);

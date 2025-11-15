@@ -87,14 +87,18 @@ Enhanced Braya Browser's password manager and autofill system based on Safari's 
 ### High Priority
 - [ ] **System Keychain Integration**: Use libsecret/gnome-keyring for Linux
 - [ ] **Master Password Prompt**: Ask user for master password on first use
-- [ ] **Password Generator**: Strong password generation for new accounts
+- [x] **Password Generator**: Strong password generation for new accounts ✅ COMPLETED 2025-11-13
 - [ ] **HTTPS Only**: Only autofill on HTTPS pages for security
 
 ### Medium Priority
-- [ ] **Password Strength Indicator**: Show password strength when saving
+- [x] **Password Strength Indicator**: Show password strength when saving ✅ COMPLETED 2025-11-13
 - [ ] **Auto-update Detection**: Detect when user changes password
 - [ ] **Biometric Auth**: Support fingerprint/face unlock if available
 - [ ] **Password History**: Track password changes over time
+
+### New Features Added (2025-11-13)
+- [x] **Search & Filter**: Real-time password search in manager ✅
+- [x] **Show/Hide Password**: Toggle password visibility ✅
 
 ### Low Priority
 - [ ] **Two-Factor Code**: Auto-fill 2FA codes from SMS/email
@@ -186,6 +190,7 @@ cd /home/cobrien/Projects/braya-browser-cpp
 - OWASP: Password storage best practices
 
 ---
-**Status**: ✅ Built successfully  
-**Last Updated**: 2024-11-03  
-**Version**: 1.0.1-dev
+**Status**: ✅ Built successfully
+**Last Updated**: 2025-11-13
+**Version**: 1.0.3
+**Recent Additions**: Password Generator, Strength Indicator, Search/Filter, Show/Hide Toggle

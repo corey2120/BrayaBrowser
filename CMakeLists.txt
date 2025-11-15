@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.10)                                                                                                               
-project(BrayaBrowser VERSION 1.0.0 LANGUAGES CXX)                                                                                                  
+cmake_minimum_required(VERSION 3.10)
+project(BrayaBrowser VERSION 1.0.6 LANGUAGES CXX)                                                                                                  
                                                                                                                                                    
 set(CMAKE_CXX_STANDARD 17)                                                                                                                         
 set(CMAKE_CXX_STANDARD_REQUIRED ON)                                                                                                                
@@ -9,7 +9,11 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 REQUIRED gtk4)
 pkg_check_modules(WEBKIT REQUIRED webkitgtk-6.0)
 pkg_check_modules(OPENSSL REQUIRED openssl)
-pkg_check_modules(JSON_GLIB REQUIRED json-glib-1.0)                                                                                                   
+pkg_check_modules(JSON_GLIB REQUIRED json-glib-1.0)
+find_library(LIBSODIUM_LIBRARY sodium)
+if(NOT LIBSODIUM_LIBRARY)
+    message(FATAL_ERROR "libsodium not found. Install libsodium-devel.")
+endif()
                                                                                                                                                    
 # Include directories                                                                                                                              
 include_directories(
@@ -42,6 +46,7 @@ set(SOURCES
     src/extensions/BackgroundPageRunner.cpp
     src/extensions/BrayaExtensionAPI.cpp
     src/extensions/ExtensionInstaller.cpp
+    src/adblocker/BrayaAdBlocker.cpp
 )
 
 # Web extension source files (separate shared library)
@@ -61,6 +66,7 @@ target_link_libraries(braya-browser
     ${WEBKIT_LIBRARIES}
     ${OPENSSL_LIBRARIES}
     ${JSON_GLIB_LIBRARIES}
+    ${LIBSODIUM_LIBRARY}
 )
 
 # Link libraries for web extension
@@ -81,14 +87,20 @@ install(FILES resources/theme-industrial.css DESTINATION share/braya-browser/res
 install(FILES resources/home.html DESTINATION share/braya-browser/resources)
 install(FILES resources/password-detect.js DESTINATION share/braya-browser/resources)                                                                       
                                                                                                                                                    
-# Install icons at multiple sizes
-install(FILES resources/icons/braya-browser-16.png DESTINATION share/icons/hicolor/16x16/apps RENAME braya-browser.png)
-install(FILES resources/icons/braya-browser-32.png DESTINATION share/icons/hicolor/32x32/apps RENAME braya-browser.png)
-install(FILES resources/icons/braya-browser-48.png DESTINATION share/icons/hicolor/48x48/apps RENAME braya-browser.png)
-install(FILES resources/icons/braya-browser-64.png DESTINATION share/icons/hicolor/64x64/apps RENAME braya-browser.png)
-install(FILES resources/icons/braya-browser-128.png DESTINATION share/icons/hicolor/128x128/apps RENAME braya-browser.png)
-install(FILES resources/icons/braya-browser-256.png DESTINATION share/icons/hicolor/256x256/apps RENAME braya-browser.png)
-install(FILES resources/icons/braya-browser-512.png DESTINATION share/icons/hicolor/512x512/apps RENAME braya-browser.png)                                                      
+# Install icons at multiple sizes (both legacy and application ID names)
+set(BRAYA_ICON_SIZES 16 32 48 64 128 256 512)
+foreach(size IN LISTS BRAYA_ICON_SIZES)
+    install(
+        FILES resources/icons/braya-browser-${size}.png
+        DESTINATION share/icons/hicolor/${size}x${size}/apps
+        RENAME braya-browser.png
+    )
+    install(
+        FILES resources/icons/dev.braya.BrayaBrowser-${size}.png
+        DESTINATION share/icons/hicolor/${size}x${size}/apps
+        RENAME dev.braya.BrayaBrowser.png
+    )
+endforeach()
                                                                                                                                                    
 # Install desktop file                                                                                                                             
 install(FILES braya-browser.desktop DESTINATION share/applications)

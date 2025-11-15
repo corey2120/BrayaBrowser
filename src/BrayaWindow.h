@@ -6,6 +6,7 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <string>
 
 class BrayaTab;
 class BrayaSettings;
@@ -15,6 +16,7 @@ class BrayaBookmarks;
 class TabGroup;
 class BrayaPasswordManager;
 class BrayaExtensionManager;
+class BrayaAdBlocker;
 
 class BrayaWindow {
 public:
@@ -28,6 +30,16 @@ public:
     void createTab(const char* url = "about:braya");
     void closeTab(int index);
     void switchToTab(int index);
+    void reopenClosedTab();
+
+    // Split view
+    void toggleSplitView();
+    void setSplitOrientation(bool horizontal); // true = horizontal, false = vertical
+    void moveTabToSplitPane(int tabIndex);
+
+    // Session management
+    void saveSession();
+    void restoreSession();
     
     // History
     void showHistory();
@@ -59,7 +71,18 @@ public:
     
     // Theme
     void applyTheme(int themeId);
-    
+
+    // Downloads UI
+    void showDownloadsButton();
+    void hideDownloadsButton();
+    void updateDownloadsButton(int activeCount);
+
+    // Ad-Blocker UI
+    void updateAdBlockerShield();
+
+    // Extension Manager (public for lambda access)
+    std::unique_ptr<BrayaExtensionManager> extensionManager;
+
 private:
     void setupUI();
     void setupCSS();
@@ -91,20 +114,42 @@ private:
     GtkWidget* findMatchLabel;
     GtkWidget* statusLabel;
     GtkWidget* tabStack;
+    GtkWidget* tabStack2;  // Second stack for split view
+    GtkWidget* splitPane;  // GtkPaned container
     GtkWidget* extensionButtonsBox;
-    
+    GtkWidget* downloadsBtn;
+    GtkWidget* adBlockerShieldBtn;
+
     GtkCssProvider* cssProvider;
+
+    // Split view state
+    bool isSplitView;
+    bool splitHorizontal;  // true = side-by-side, false = top-bottom
+    int activeTabIndexPane2;  // Active tab in second pane
     
     // Tab management
     std::vector<std::unique_ptr<BrayaTab>> tabs;
     int activeTabIndex;
     int nextTabId;
     bool showBookmarksBar;
+
+    // Recently closed tabs
+    struct ClosedTab {
+        std::string url;
+        std::string title;
+    };
+    std::vector<ClosedTab> recentlyClosedTabs;
+    static constexpr int MAX_CLOSED_TABS = 10;
     
     // Tab groups
     std::vector<std::unique_ptr<TabGroup>> tabGroups;
     std::map<int, int> tabToGroup; // tabId -> groupId
     int nextGroupId;
+
+    // Favicon cache
+    std::map<std::string, GdkTexture*> faviconCache; // url -> favicon texture
+    void cacheFavicon(const std::string& url, GdkTexture* favicon);
+    GdkTexture* getCachedFavicon(const std::string& url);
     
     // Settings
     std::unique_ptr<BrayaSettings> settings;
@@ -112,7 +157,7 @@ private:
     std::unique_ptr<BrayaDownloads> downloads;
     std::unique_ptr<BrayaBookmarks> bookmarksManager;
     std::unique_ptr<BrayaPasswordManager> passwordManager;
-    std::unique_ptr<BrayaExtensionManager> extensionManager;
+    std::unique_ptr<BrayaAdBlocker> adBlocker;
 
     // Password Manager
     void showPasswordManager();
@@ -131,6 +176,7 @@ private:
     static void onSettingsClicked(GtkWidget* widget, gpointer data);
     static void onDownloadsClicked(GtkWidget* widget, gpointer data);
     static void onDevToolsClicked(GtkWidget* widget, gpointer data);
+    static void onAdBlockerShieldClicked(GtkWidget* widget, gpointer data);
     static void onFindNextClicked(GtkWidget* widget, gpointer data);
     static void onFindPrevClicked(GtkWidget* widget, gpointer data);
     static void onFindCloseClicked(GtkWidget* widget, gpointer data);

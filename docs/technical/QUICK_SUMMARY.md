@@ -57,7 +57,8 @@ Credentials filled instantly
 ✅ Select from multiple accounts per site  
 ✅ Works with AJAX/SPA login forms  
 ✅ Export/Import passwords (CSV)  
-✅ Sync with Bitwarden  
+✅ Inline autofill dropdown + toast
+✅ Optional multi-step capture toggle in settings
 ✅ Manage passwords in UI  
 
 ## Quick Test

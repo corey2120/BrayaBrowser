@@ -40,6 +40,7 @@ public:
     std::string getVersion() const { return m_version; }
     std::string getPath() const { return m_path; }
     int getManifestVersion() const { return m_manifestVersion; }
+    std::string getManifestJson() const { return m_manifestJson; }
 
     std::vector<std::string> getPermissions() const { return m_permissions; }
     std::vector<ContentScript> getContentScripts() const { return m_contentScripts; }
@@ -68,6 +69,7 @@ private:
     std::string m_description;
     std::string m_path;                     // Extension directory path
     int m_manifestVersion;                   // 2 or 3
+    std::string m_manifestJson;              // Raw manifest JSON
 
     std::vector<std::string> m_permissions;
     std::vector<ContentScript> m_contentScripts;
@@ -82,6 +84,7 @@ private:
     // Helper methods
     bool parseManifestJson(const std::string& jsonContent);
     std::string readFile(const std::string& filepath);
+    std::string resolveI18nString(const std::string& str);
 };
 
 #endif // BRAYA_WEB_EXTENSION_H
