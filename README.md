@@ -2,7 +2,7 @@
 
 A modern, highly customizable web browser built with C++ and WebKit.
 
-**Version:** 1.0.5
+**Version:** 1.0.6
 **Platform:** Linux (GTK4)
 **Engine:** WebKit2GTK 6.0
 
@@ -10,7 +10,7 @@ A modern, highly customizable web browser built with C++ and WebKit.
 
 ### Core Functionality
 - **WebKit Engine** - Fast, modern web standards support
-- **Vertical Tab Bar** - Zen-style sidebar with tab management
+- **Vertical Tab Bar** - Sidebar with tab management
 - **Extension Support** - Load Firefox & Chrome extensions (.xpi, .crx)
 - **Password Manager** - AES-256 encrypted, auto-fill/auto-save
 - **Bookmarks** - Visual bookmarks bar with folders, nesting, and favicons
@@ -57,13 +57,13 @@ sudo make install
 ### Build RPM Package
 ```bash
 # Create source tarball
-tar --exclude='./build' --exclude='./.git' -czf ~/rpmbuild/SOURCES/braya-browser-1.0.5.tar.gz --transform 's,^\.,braya-browser-1.0.5,' .
+tar --exclude='./build' --exclude='./.git' -czf ~/rpmbuild/SOURCES/braya-browser-1.0.6.tar.gz --transform 's,^\.,braya-browser-1.0.6,' .
 
 # Build RPM
 rpmbuild -bb braya-browser.spec
 
 # Install
-sudo dnf install ~/rpmbuild/RPMS/x86_64/braya-browser-1.0.5-1.fc43.x86_64.rpm
+sudo dnf install ~/rpmbuild/RPMS/x86_64/braya-browser-1.0.6-1.fc43.x86_64.rpm
 ```
 
 ## Usage
@@ -86,10 +86,6 @@ sudo dnf install ~/rpmbuild/RPMS/x86_64/braya-browser-1.0.5-1.fc43.x86_64.rpm
 
 ### Extension Installation
 Download `.xpi` (Firefox) or `.crx` (Chrome) files and they will auto-install.
-
-Tested extensions:
-- uBlock Origin ✓
-- Port Authority ✓
 
 ## Project Structure
 ```
@@ -115,8 +111,9 @@ braya-browser-cpp/
 ## Development
 
 ### Version History
+- **1.0.6** (Nov 15, 2025) - Password manager update and minor UI updates
 - **1.0.5** (Nov 13, 2025) - Bookmark folders with nesting, drag-and-drop organization, context menus
-- **1.0.2** (Nov 7, 2024) - UI refinements, Zen-style bookmarks bar
+- **1.0.2** (Nov 7, 2024) - UI refinements, enhanced bookmarks bar
 - **1.0.1** (Nov 2-3, 2024) - Beta releases, password manager, extensions
 - **1.0.0** (Nov 1, 2024) - Initial release
 
@@ -129,7 +126,6 @@ MIT License - See LICENSE file for details
 ## Credits
 Built by Corey O'Brien
 Website: https://braya.dev
-Inspired by Zen Browser and Vivaldi
 
 ---
 
