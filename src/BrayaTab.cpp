@@ -15,7 +15,8 @@
 BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, BrayaExtensionManager* extMgr)
     : id(id), url(url ? url : "about:braya"), title("New Tab"), isLoading(false),
       favicon(nullptr), tabButton(nullptr), passwordManager(passwordMgr), extensionManager(extMgr),
-      userContentManager(nullptr), pinned(false), muted(false), readerMode(false) {
+      userContentManager(nullptr), pinned(false), muted(false), readerMode(false),
+      suspended(false), cachedFavicon(nullptr) {
 
     // Create WebView first
     webView = WEBKIT_WEB_VIEW(webkit_web_view_new());
@@ -491,8 +492,22 @@ gboolean BrayaTab::onDecidePolicy(WebKitWebView* webView, WebKitPolicyDecision* 
         // Ignore the navigation in current tab
         webkit_policy_decision_ignore(decision);
 
-        // Open in new tab via callback
-        tab->newTabCallback(uri);
+        // IMPORTANT: Defer tab creation to avoid creating WebView inside policy handler
+        // Creating a new WebView synchronously from within a policy decision handler
+        // can cause WebKit assertion failures (Signal 6 SIGABRT)
+        struct NewTabData {
+            BrayaTab* tab;
+            std::string url;
+        };
+        NewTabData* data = new NewTabData{tab, std::string(uri)};
+        g_idle_add([](gpointer user_data) -> gboolean {
+            auto* data = static_cast<NewTabData*>(user_data);
+            if (data->tab && data->tab->newTabCallback) {
+                data->tab->newTabCallback(data->url);
+            }
+            delete data;
+            return G_SOURCE_REMOVE;
+        }, data);
 
         return TRUE;  // We handled it
     }
@@ -1558,4 +1573,131 @@ void BrayaTab::injectExtensionContentScripts(const std::string& pageUrl) {
             }
         }
     }
+}
+
+// 💤 Tab Suspension Implementation (Phase 2 Memory Optimization)
+
+void BrayaTab::suspend() {
+    if (suspended || !webView) return;
+
+    // 🔧 Validate WebView is still valid before suspending
+    if (!WEBKIT_IS_WEB_VIEW(webView)) {
+        std::cerr << "⚠️ Warning: WebView for tab " << id << " is not valid, marking as suspended" << std::endl;
+        suspended = true;
+        return;
+    }
+
+    std::cout << "💤 Suspending tab " << id << ": " << title << std::endl;
+
+    // Save current state
+    suspendedUrl = url;
+    suspendedTitle = title;
+
+    // Cache favicon if available
+    if (favicon && GDK_IS_TEXTURE(favicon)) {
+        cachedFavicon = (GdkTexture*)g_object_ref(favicon);
+    }
+
+    // Disconnect signals before destroying WebView
+    if (WEBKIT_IS_WEB_VIEW(webView)) {
+        g_signal_handlers_disconnect_by_data(webView, this);
+    }
+
+    // Destroy WebView to free memory
+    if (scrolledWindow && GTK_IS_WIDGET(scrolledWindow)) {
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolledWindow), nullptr);
+    }
+
+    if (webView && GTK_IS_WIDGET(webView)) {
+        webkit_web_view_try_close(webView);
+        // WebView will be destroyed automatically when its last reference is dropped
+    }
+
+    webView = nullptr;
+    suspended = true;
+
+    // Update tab button to show suspended state
+    if (tabButton && GTK_IS_WIDGET(tabButton)) {
+        gtk_widget_add_css_class(tabButton, "suspended");
+    }
+
+    std::cout << "  ✓ Tab suspended, WebView destroyed" << std::endl;
+}
+
+void BrayaTab::resume() {
+    if (!suspended) return;
+
+    std::cout << "⏰ Resuming tab " << id << ": " << suspendedTitle << std::endl;
+
+    // Recreate WebView
+    webView = WEBKIT_WEB_VIEW(webkit_web_view_new());
+
+    // 🔧 Validate WebView was created successfully
+    if (!webView || !WEBKIT_IS_WEB_VIEW(webView)) {
+        std::cerr << "❌ Error: Failed to create WebView for tab " << id << std::endl;
+        return;
+    }
+
+    // Get the UserContentManager from the webview
+    userContentManager = webkit_web_view_get_user_content_manager(webView);
+
+    // 🔧 Validate UserContentManager
+    if (!userContentManager) {
+        std::cerr << "❌ Error: Failed to get UserContentManager for tab " << id << std::endl;
+        return;
+    }
+
+    // Enable developer tools
+    WebKitSettings* settings = webkit_web_view_get_settings(webView);
+    webkit_settings_set_enable_developer_extras(settings, TRUE);
+    webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+
+    // Reattach to scrolled window
+    if (scrolledWindow && GTK_IS_WIDGET(scrolledWindow)) {
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolledWindow), GTK_WIDGET(webView));
+    }
+
+    // Setup password manager again
+    if (passwordManager) {
+        setupPasswordManager();
+    }
+
+    // Setup extension detector again
+    setupExtensionDetector();
+
+    // Reconnect signals
+    g_signal_connect(webView, "load-changed", G_CALLBACK(onLoadChanged), this);
+    g_signal_connect(webView, "notify::title", G_CALLBACK(onTitleChanged), this);
+    g_signal_connect(webView, "notify::uri", G_CALLBACK(onUriChanged), this);
+    g_signal_connect(webView, "notify::favicon", G_CALLBACK(onFaviconChanged), this);
+    g_signal_connect(webView, "web-process-terminated", G_CALLBACK(onWebProcessCrashed), this);
+    g_signal_connect(webView, "create", G_CALLBACK(onCreateNewWindow), this);
+    g_signal_connect(webView, "decide-policy", G_CALLBACK(onDecidePolicy), this);
+
+    // Reload the URL
+    if (!suspendedUrl.empty()) {
+        std::string finalUrl = suspendedUrl;
+
+        // Handle about:braya
+        if (finalUrl == "about:braya") {
+            finalUrl = "file://" + getResourcePath("home.html");
+        }
+
+        webkit_web_view_load_uri(webView, finalUrl.c_str());
+    }
+
+    suspended = false;
+
+    // Remove suspended CSS class
+    if (tabButton && GTK_IS_WIDGET(tabButton)) {
+        gtk_widget_remove_css_class(tabButton, "suspended");
+    }
+
+    // Clean up cached favicon
+    if (cachedFavicon) {
+        g_object_unref(cachedFavicon);
+        cachedFavicon = nullptr;
+    }
+
+    std::cout << "  ✓ Tab resumed, WebView recreated" << std::endl;
 }

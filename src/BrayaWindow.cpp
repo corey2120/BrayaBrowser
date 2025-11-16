@@ -272,7 +272,9 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
       tabStack2(nullptr),
       splitPane(nullptr),
       window(nullptr),
-      bookmarksBar(nullptr) {
+      bookmarksBar(nullptr),
+      memoryLabel(nullptr),
+      memoryTimerSourceId(0) {
     
     g_print("Creating Braya window...\n");
     
@@ -364,9 +366,65 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
 
     // Initialize extension system BEFORE creating any tabs
     // This ensures web extensions are loaded before web views are created
+
+    // 🎨 Favicon Fix: Ensure data directories exist for WebKit
+    // WebKit will automatically use these for favicon storage
+    const char* dataDir = g_build_filename(g_get_user_data_dir(), "braya-browser", "webkit", NULL);
+    const char* cacheDir = g_build_filename(g_get_user_cache_dir(), "braya-browser", "webkit", NULL);
+    const char* iconDbDir = g_build_filename(g_get_user_data_dir(), "braya-browser", "webkit", "icondatabase", NULL);
+
+    g_mkdir_with_parents(dataDir, 0700);
+    g_mkdir_with_parents(cacheDir, 0700);
+    g_mkdir_with_parents(iconDbDir, 0700);
+
+    std::cout << "🎨 Created WebKit data directories for favicon support" << std::endl;
+    std::cout << "  Data: " << dataDir << std::endl;
+    std::cout << "  Cache: " << cacheDir << std::endl;
+    std::cout << "  Icon DB: " << iconDbDir << std::endl;
+
     WebKitWebContext* context = webkit_web_context_get_default();
     extensionManager->initialize(context);
     settings->setWebContext(context);
+
+    // 🧹 Memory optimization: WebKit will handle automatic memory management
+    // We'll implement session data limits to prevent unbounded growth
+
+    // 💤 Phase 2: Tab suspension timer (check every 30 seconds for inactive tabs)
+    g_timeout_add_seconds(30, [](gpointer data) -> gboolean {
+        BrayaWindow* window = static_cast<BrayaWindow*>(data);
+        time_t now = time(nullptr);
+
+        // Suspend tabs that have been inactive for 10+ minutes (600 seconds)
+        for (size_t i = 0; i < window->tabs.size(); i++) {
+            // Don't suspend the active tab in main pane
+            if ((int)i == window->activeTabIndex) continue;
+
+            // 🔧 Don't suspend the active tab in split view pane 2
+            if (window->isSplitView && (int)i == window->activeTabIndexPane2) continue;
+
+            // Don't suspend pinned tabs
+            if (window->tabs[i]->isPinned()) continue;
+
+            // Don't suspend already suspended tabs
+            if (window->tabs[i]->isSuspended()) continue;
+
+            // Check if tab has been inactive for 10 minutes
+            // For now, suspend all inactive tabs after 1 check cycle (30 seconds for testing)
+            // TODO: Add proper time tracking per tab
+            window->tabs[i]->suspend();
+        }
+
+        return G_SOURCE_CONTINUE;  // Keep running
+    }, this);
+
+    // 📊 Memory indicator timer (update every 10 seconds)
+    // First update happens after 10 seconds to ensure all components are initialized
+    // Store the source ID so we can remove it in the destructor
+    memoryTimerSourceId = g_timeout_add_seconds(10, [](gpointer data) -> gboolean {
+        BrayaWindow* window = static_cast<BrayaWindow*>(data);
+        window->updateMemoryIndicator();
+        return G_SOURCE_CONTINUE;  // Keep running
+    }, this);
 
     // Pass extension manager to settings so it can manage extensions
     settings->setExtensionManager(extensionManager.get());
@@ -615,6 +673,12 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
 }
 
 BrayaWindow::~BrayaWindow() {
+    // 📊 Remove memory indicator timer
+    if (memoryTimerSourceId != 0) {
+        g_source_remove(memoryTimerSourceId);
+        memoryTimerSourceId = 0;
+    }
+
     // Save session before closing
     saveSession();
 
@@ -867,8 +931,10 @@ void BrayaWindow::setupUI() {
     gtk_box_append(GTK_BOX(findBar), findCloseBtn);
     
     gtk_box_append(GTK_BOX(contentBox), findBar);
-    
-    // No status bar - maximize space!
+
+    // 📊 Status bar at the bottom
+    createStatusBar();
+    gtk_box_append(GTK_BOX(contentBox), statusBar);
 }
 
 void BrayaWindow::createSidebar() {
@@ -1132,7 +1198,12 @@ void BrayaWindow::createStatusBar() {
     gtk_widget_set_hexpand(statusLabel, TRUE);
     gtk_label_set_xalign(GTK_LABEL(statusLabel), 0);
     gtk_box_append(GTK_BOX(statusBar), statusLabel);
-    
+
+    // 📊 Memory indicator label (visibility controlled by settings)
+    memoryLabel = gtk_label_new("");
+    gtk_widget_add_css_class(memoryLabel, "memory-indicator");
+    gtk_box_append(GTK_BOX(statusBar), memoryLabel);
+
     GtkWidget* engineLabel = gtk_label_new("WebKit Engine");
     gtk_widget_add_css_class(engineLabel, "braya-title");
     gtk_box_append(GTK_BOX(statusBar), engineLabel);
@@ -1282,16 +1353,110 @@ void BrayaWindow::createTab(const char* url) {
     gtk_widget_set_valign(faviconBox, GTK_ALIGN_CENTER);
     gtk_widget_set_size_request(faviconBox, 32, 32);
     gtk_widget_add_css_class(faviconBox, "tab-favicon");
-    
+
+    // Create close button (Zen-style - appears on hover)
+    GtkWidget* closeBtn = gtk_button_new_from_icon_name("window-close-symbolic");
+    gtk_widget_add_css_class(closeBtn, "tab-close-button");
+    gtk_widget_set_size_request(closeBtn, 12, 12);  // Very small
+    gtk_widget_set_halign(closeBtn, GTK_ALIGN_START);  // Upper LEFT corner
+    gtk_widget_set_valign(closeBtn, GTK_ALIGN_START);
+    gtk_widget_set_can_focus(closeBtn, FALSE);  // Don't steal focus
+    gtk_widget_set_opacity(closeBtn, 0.0);  // Hidden by default
+    gtk_widget_set_margin_start(closeBtn, 3);  // Small margin from edge
+    gtk_widget_set_margin_top(closeBtn, 3);
+
+    // Make overlay pass-through except for close button (so tab is still clickable)
+    gtk_widget_set_can_target(closeBtn, TRUE);
+
+    // Create overlay to hold favicon and close button
+    GtkWidget* overlay = gtk_overlay_new();
+    gtk_overlay_set_child(GTK_OVERLAY(overlay), faviconBox);
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), closeBtn);
+
     // Main tab button
     GtkWidget* tabBtn = gtk_button_new();
     gtk_widget_add_css_class(tabBtn, "tab-button");
     gtk_widget_set_size_request(tabBtn, 48, 48);
-    gtk_button_set_child(GTK_BUTTON(tabBtn), faviconBox);
+    gtk_button_set_child(GTK_BUTTON(tabBtn), overlay);
 
     g_object_set_data(G_OBJECT(tabBtn), "tab-index", GINT_TO_POINTER(tabs.size()));
     g_object_set_data(G_OBJECT(tabBtn), "favicon-box", faviconBox);
+    g_object_set_data(G_OBJECT(tabBtn), "close-button", closeBtn);
     g_object_set_data(G_OBJECT(tabBtn), "window", this);
+
+    // Close button click handler with event stopping
+    GtkGesture* closeClickGesture = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(closeClickGesture), GDK_BUTTON_PRIMARY);
+
+    g_object_set_data(G_OBJECT(closeClickGesture), "tab-button", tabBtn);
+    g_object_set_data(G_OBJECT(closeClickGesture), "window", this);
+
+    g_signal_connect(closeClickGesture, "pressed", G_CALLBACK(+[](GtkGestureClick* gesture, int n_press, double x, double y, gpointer data) {
+        // Get window and tab button
+        BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(gesture), "window"));
+        GtkWidget* tabBtn = GTK_WIDGET(g_object_get_data(G_OBJECT(gesture), "tab-button"));
+        GtkWidget* closeBtn = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+
+        // Stop event propagation so tab doesn't switch
+        gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+
+        if (!window || !tabBtn || !closeBtn) return;
+
+        // Check if button is already disabled (closing in progress)
+        if (!gtk_widget_get_sensitive(closeBtn)) {
+            std::cout << "⚠️  Close button already clicked, ignoring duplicate event" << std::endl;
+            return;
+        }
+
+        // Disable button immediately to prevent double-clicks
+        gtk_widget_set_sensitive(closeBtn, FALSE);
+
+        // Find the tab index by matching the tab button
+        int index = -1;
+        for (size_t i = 0; i < window->tabs.size(); i++) {
+            if (window->tabs[i] && window->tabs[i]->getTabButton() == tabBtn) {
+                index = i;
+                break;
+            }
+        }
+
+        if (index >= 0 && index < (int)window->tabs.size() && window->tabs.size() > 1) {
+            std::cout << "✕ Closing tab " << index << " via close button" << std::endl;
+            window->closeTab(index);
+        } else {
+            // Re-enable button if we couldn't close (edge case)
+            gtk_widget_set_sensitive(closeBtn, TRUE);
+        }
+    }), nullptr);
+
+    gtk_widget_add_controller(closeBtn, GTK_EVENT_CONTROLLER(closeClickGesture));
+
+    // Hover controller to show/hide close button
+    GtkEventController* hoverController = gtk_event_controller_motion_new();
+
+    auto showCloseBtn = +[](GtkEventControllerMotion* controller, double x, double y, gpointer data) {
+        GtkWidget* tabBtn = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+        GtkWidget* closeBtn = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "close-button"));
+
+        if (closeBtn && GTK_IS_WIDGET(closeBtn)) {
+            // Smooth fade-in animation
+            gtk_widget_set_opacity(closeBtn, 1.0);
+        }
+    };
+
+    auto hideCloseBtn = +[](GtkEventControllerMotion* controller, gpointer data) {
+        GtkWidget* tabBtn = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+        GtkWidget* closeBtn = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "close-button"));
+
+        if (closeBtn && GTK_IS_WIDGET(closeBtn)) {
+            // Smooth fade-out animation
+            gtk_widget_set_opacity(closeBtn, 0.0);
+        }
+    };
+
+    g_signal_connect(hoverController, "enter", G_CALLBACK(showCloseBtn), nullptr);
+    g_signal_connect(hoverController, "leave", G_CALLBACK(hideCloseBtn), nullptr);
+    gtk_widget_add_controller(tabBtn, hoverController);
 
     // Add hover controller for tab preview with debouncing (if enabled in settings)
     if (settings && settings->getShowTabPreviews()) {
@@ -1475,8 +1640,12 @@ void BrayaWindow::createTab(const char* url) {
 
     // Apply ad-blocker to this tab
     WebKitWebView* webView = tab->getWebView();
-    WebKitUserContentManager* contentManager = webkit_web_view_get_user_content_manager(webView);
-    adBlocker->applyToContentManager(contentManager);
+    if (webView && adBlocker) {
+        WebKitUserContentManager* contentManager = webkit_web_view_get_user_content_manager(webView);
+        if (contentManager) {
+            adBlocker->applyToContentManager(contentManager);
+        }
+    }
 
     tabs.push_back(std::move(tab));
     
@@ -1498,22 +1667,36 @@ void BrayaWindow::createTab(const char* url) {
 
 void BrayaWindow::switchToTab(int index) {
     if (index < 0 || index >= (int)tabs.size()) return;
-    
+
     activeTabIndex = index;
     BrayaTab* tab = tabs[index].get();
-    
-    // Switch stack view
+
+    // 💤 Phase 2: Resume suspended tab if needed
+    if (tab->isSuspended()) {
+        tab->resume();
+    }
+
+    // 🔧 Validate GTK stack child exists before switching
     char name[32];
     snprintf(name, sizeof(name), "tab-%d", tab->getId());
-    gtk_stack_set_visible_child_name(GTK_STACK(tabStack), name);
-    
+
+    // Check if the child exists in the stack before trying to switch
+    GtkWidget* stackChild = gtk_stack_get_child_by_name(GTK_STACK(tabStack), name);
+    if (stackChild && GTK_IS_WIDGET(stackChild)) {
+        gtk_stack_set_visible_child_name(GTK_STACK(tabStack), name);
+    } else {
+        std::cerr << "⚠️ Warning: Stack child '" << name << "' not found, skipping switch" << std::endl;
+    }
+
     // Update URL bar
     gtk_editable_set_text(GTK_EDITABLE(urlEntry), tab->getUrl().c_str());
-    
+
     // Update navigation buttons
     WebKitWebView* webView = tab->getWebView();
-    gtk_widget_set_sensitive(backBtn, webkit_web_view_can_go_back(webView));
-    gtk_widget_set_sensitive(forwardBtn, webkit_web_view_can_go_forward(webView));
+    if (webView && WEBKIT_IS_WEB_VIEW(webView)) {
+        gtk_widget_set_sensitive(backBtn, webkit_web_view_can_go_back(webView));
+        gtk_widget_set_sensitive(forwardBtn, webkit_web_view_can_go_forward(webView));
+    }
     
     // Update tab button styles
     for (size_t i = 0; i < tabs.size(); i++) {
@@ -1547,9 +1730,24 @@ void BrayaWindow::closeTab(int index) {
 
     std::cout << "💾 Saved closed tab: " << closedTab.title << " (" << closedTab.url << ")" << std::endl;
 
+    // Properly close the WebView before destroying it
+    WebKitWebView* webView = tabs[index]->getWebView();
+    if (webView && WEBKIT_IS_WEB_VIEW(webView)) {
+        // Use try_close() which properly terminates the web process
+        webkit_web_view_try_close(webView);
+        // Disconnect all WebView signals to prevent callbacks during destruction
+        g_signal_handlers_disconnect_by_data(webView, this);
+
+        // 🧹 Memory optimization: WebKit will clean up the WebView memory automatically
+        // when the web process terminates via try_close()
+    }
+
     // Clean up any preview popover and timer before removing the tab button
     GtkWidget* tabBtn = tabs[index]->getTabButton();
     if (tabBtn && GTK_IS_WIDGET(tabBtn)) {
+        // Disconnect ALL signals from tab button before removal to prevent callbacks
+        g_signal_handlers_disconnect_matched(tabBtn, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
+
         // Cancel any pending timer
         guint* existingTimer = (guint*)g_object_get_data(G_OBJECT(tabBtn), "preview-timer");
         if (existingTimer && *existingTimer > 0) {
@@ -1563,6 +1761,28 @@ void BrayaWindow::closeTab(int index) {
         if (popover && GTK_IS_WIDGET(popover)) {
             gtk_widget_unparent(popover);
             g_object_set_data(G_OBJECT(tabBtn), "preview-popover", nullptr);
+        }
+
+        // Disconnect close button and clear gesture data to prevent stale callbacks
+        GtkWidget* closeBtn = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "close-button"));
+        if (closeBtn && GTK_IS_WIDGET(closeBtn)) {
+            // Find and clear data on all gesture controllers
+            GListModel* controllers = gtk_widget_observe_controllers(closeBtn);
+            guint n_controllers = g_list_model_get_n_items(controllers);
+            for (guint i = 0; i < n_controllers; i++) {
+                GtkEventController* controller = GTK_EVENT_CONTROLLER(g_list_model_get_item(controllers, i));
+                if (controller && GTK_IS_GESTURE_CLICK(controller)) {
+                    // Clear the gesture's object data to prevent callbacks from accessing invalid pointers
+                    g_object_set_data(G_OBJECT(controller), "window", nullptr);
+                    g_object_set_data(G_OBJECT(controller), "tab-button", nullptr);
+                }
+                if (controller) {
+                    g_object_unref(controller);
+                }
+            }
+
+            // Disconnect all signals
+            g_signal_handlers_disconnect_matched(closeBtn, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, nullptr);
         }
 
         // Remove from UI
@@ -1883,6 +2103,9 @@ void BrayaWindow::restoreSession() {
 
         std::cout << "🔄 Restoring " << numTabs << " tabs from session..." << std::endl;
 
+        // 🚀 Phase 4: Smart Loading - Only load first 5 tabs immediately
+        const int MAX_IMMEDIATE_LOAD = 5;
+
         for (int i = 0; i < numTabs; i++) {
             JsonObject* tabObj = json_array_get_object_element(tabsArray, i);
 
@@ -1900,6 +2123,13 @@ void BrayaWindow::restoreSession() {
                 auto& tab = tabs.back();
                 if (pinned) tab->setPinned(true);
                 if (muted) tab->setMuted(true);
+
+                // 🚀 Phase 4: Suspend tabs after the first 5 (or if not pinned and past first 5)
+                // Don't suspend pinned tabs as they're likely important
+                if (i >= MAX_IMMEDIATE_LOAD && !pinned) {
+                    std::cout << "  💤 Auto-suspending tab " << (i + 1) << " for lazy loading" << std::endl;
+                    tab->suspend();
+                }
             }
         }
     }
@@ -3104,6 +3334,16 @@ void BrayaWindow::onBookmarkBarItemRightClick(GtkGestureClick* gesture, int n_pr
             BrayaWindow* window = (BrayaWindow*)g_object_get_data(G_OBJECT(parentWindow), "braya-window-instance");
 
             if (window && window->bookmarksManager) {
+                // If a new folder was created, ensure it exists
+                if (g_str_has_prefix(folder, "📁 New Folder") && !finalFolder.empty() && finalFolder != "Other Bookmarks") {
+                    // Check if folder already exists
+                    if (!window->bookmarksManager->findFolder(finalFolder)) {
+                        // Create the folder if it doesn't exist
+                        window->bookmarksManager->addFolder(finalFolder);
+                        std::cout << "✓ Created new folder: " << finalFolder << std::endl;
+                    }
+                }
+
                 // Edit the bookmark
                 window->bookmarksManager->editBookmarkByUrl(oldUrl, newName, newUrl, newFolder);
 
@@ -3224,6 +3464,48 @@ void BrayaWindow::onBookmarkBarItemRightClick(GtkGestureClick* gesture, int n_pr
         gtk_popover_popdown(GTK_POPOVER(popover));
     }), popover);
     gtk_box_append(GTK_BOX(menuBox), copyBtn);
+
+    // Add separator
+    GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_append(GTK_BOX(menuBox), separator);
+
+    // New Folder button
+    GtkWidget* newFolderBtn = gtk_button_new_with_label("📁 New Folder");
+    gtk_widget_add_css_class(newFolderBtn, "flat");
+    g_signal_connect(newFolderBtn, "clicked", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
+        GtkWidget* popover = GTK_WIDGET(data);
+        GtkWidget* parentWindow = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "window"));
+        gtk_popover_popdown(GTK_POPOVER(popover));
+
+        // Get BrayaWindow instance
+        BrayaWindow* window = (BrayaWindow*)g_object_get_data(G_OBJECT(parentWindow), "braya-window-instance");
+        if (window && window->bookmarksManager) {
+            // Show folder creation dialog
+            std::string folderName = BrayaBookmarks::showNewFolderDialog(GTK_WINDOW(parentWindow));
+            if (!folderName.empty()) {
+                window->bookmarksManager->addFolder(folderName);
+                window->refreshBookmarksBar();
+                std::cout << "✓ Created folder: " << folderName << std::endl;
+            }
+        }
+    }), popover);
+    gtk_box_append(GTK_BOX(menuBox), newFolderBtn);
+
+    // Manage Bookmarks button
+    GtkWidget* manageBtn = gtk_button_new_with_label("📚 Manage Bookmarks");
+    gtk_widget_add_css_class(manageBtn, "flat");
+    g_signal_connect(manageBtn, "clicked", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
+        GtkWidget* popover = GTK_WIDGET(data);
+        GtkWidget* parentWindow = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "window"));
+        gtk_popover_popdown(GTK_POPOVER(popover));
+
+        // Get BrayaWindow instance and show bookmarks manager
+        BrayaWindow* window = (BrayaWindow*)g_object_get_data(G_OBJECT(parentWindow), "braya-window-instance");
+        if (window) {
+            window->showBookmarksManager();
+        }
+    }), popover);
+    gtk_box_append(GTK_BOX(menuBox), manageBtn);
 
     gtk_popover_popup(GTK_POPOVER(popover));
 }
@@ -3346,4 +3628,75 @@ void BrayaWindow::updateExtensionButtons() {
     }
 
     std::cout << "✓ Extension buttons updated (" << extensions.size() << " extensions)" << std::endl;
+}
+
+// 📊 Memory indicator implementation
+long BrayaWindow::getMemoryUsage() {
+    FILE* file = fopen("/proc/self/status", "r");
+    if (!file) {
+        return -1;
+    }
+
+    char line[128];
+    long rss = 0;
+
+    while (fgets(line, sizeof(line), file)) {
+        if (strncmp(line, "VmRSS:", 6) == 0) {
+            // Extract the number from "VmRSS:  123456 kB"
+            sscanf(line + 6, "%ld", &rss);
+            break;
+        }
+    }
+
+    fclose(file);
+    return rss;  // Returns RSS in KB
+}
+
+void BrayaWindow::updateMemoryIndicator() {
+    // Comprehensive safety checks
+    if (!memoryLabel) return;
+    if (!GTK_IS_WIDGET(memoryLabel)) return;
+    if (!GTK_IS_LABEL(memoryLabel)) return;
+
+    // Safety check for settings object
+    if (!settings) {
+        gtk_widget_set_visible(memoryLabel, FALSE);
+        return;
+    }
+
+    // Check if memory indicator is enabled in settings
+    bool enabled = false;
+    try {
+        enabled = settings->getMemoryIndicatorEnabled();
+    } catch (...) {
+        gtk_widget_set_visible(memoryLabel, FALSE);
+        return;
+    }
+
+    if (!enabled) {
+        gtk_widget_set_visible(memoryLabel, FALSE);
+        return;
+    }
+
+    gtk_widget_set_visible(memoryLabel, TRUE);
+
+    long memKB = getMemoryUsage();
+    if (memKB < 0) {
+        gtk_label_set_text(GTK_LABEL(memoryLabel), "Memory: N/A");
+        return;
+    }
+
+    // Format the memory display
+    char memText[64];
+    if (memKB < 1024) {
+        snprintf(memText, sizeof(memText), "📊 %ld KB", memKB);
+    } else if (memKB < 1024 * 1024) {
+        double memMB = memKB / 1024.0;
+        snprintf(memText, sizeof(memText), "📊 %.1f MB", memMB);
+    } else {
+        double memGB = memKB / (1024.0 * 1024.0);
+        snprintf(memText, sizeof(memText), "📊 %.2f GB", memGB);
+    }
+
+    gtk_label_set_text(GTK_LABEL(memoryLabel), memText);
 }

@@ -38,12 +38,36 @@ void BrayaBookmarks::addBookmark(const std::string& name, const std::string& url
     saveToFile();
 }
 
-void BrayaBookmarks::editBookmark(int index, const std::string& name, const std::string& url, const std::string& folder) {
+void BrayaBookmarks::editBookmark(int index, const std::string& name, const std::string& url, const std::string& folderName) {
     if (index >= 0 && index < (int)bookmarks.size()) {
-        bookmarks[index].name = name;
-        bookmarks[index].url = url;
-        bookmarks[index].folder = folder;
-        saveToFile();
+        // Check if we're moving the bookmark to an actual folder
+        Bookmark* targetFolder = findFolder(folderName);
+
+        if (targetFolder) {
+            // Moving to a folder - remove from root and add to folder's children
+            std::cout << "📁 Moving bookmark '" << name << "' to folder '" << folderName << "'" << std::endl;
+
+            // Save bookmark data
+            Bookmark bookmark = bookmarks[index];
+            bookmark.name = name;
+            bookmark.url = url;
+            bookmark.folder = folderName;
+
+            // Remove from root
+            bookmarks.erase(bookmarks.begin() + index);
+
+            // Add to folder's children
+            targetFolder->children.push_back(bookmark);
+
+            saveToFile();
+        } else {
+            // Not moving to a folder, or folder is "Bookmarks Bar" / "Other Bookmarks"
+            // Just update in place
+            bookmarks[index].name = name;
+            bookmarks[index].url = url;
+            bookmarks[index].folder = folderName;
+            saveToFile();
+        }
     }
 }
 
@@ -319,14 +343,18 @@ void BrayaBookmarks::deleteFolder(const std::string& folderName) {
 }
 
 void BrayaBookmarks::showBookmarksManager(GtkWindow* parent) {
+    std::cout << "📚 showBookmarksManager called" << std::endl;
     if (managerDialog) {
+        std::cout << "📚 Dialog already exists, presenting it" << std::endl;
         gtk_window_present(GTK_WINDOW(managerDialog));
         return;
     }
-    
+
+    std::cout << "📚 Creating new manager dialog..." << std::endl;
     createManagerDialog(parent);
     refreshBookmarksList();
     gtk_window_present(GTK_WINDOW(managerDialog));
+    std::cout << "📚 Manager dialog shown" << std::endl;
 }
 
 void BrayaBookmarks::createManagerDialog(GtkWindow* parent) {
@@ -385,8 +413,13 @@ void BrayaBookmarks::createManagerDialog(GtkWindow* parent) {
     gtk_box_append(GTK_BOX(buttonBox), addBtn);
 
     GtkWidget* newFolderBtn = gtk_button_new_with_label("📁 New Folder");
-    g_signal_connect(newFolderBtn, "clicked", G_CALLBACK(onAddFolderClicked), this);
+    std::cout << "🔧 Creating 'New Folder' button: " << newFolderBtn << std::endl;
+
+    gulong handler_id = g_signal_connect(newFolderBtn, "clicked", G_CALLBACK(onAddFolderClicked), this);
+    std::cout << "🔧 Connected signal handler ID: " << handler_id << " to onAddFolderClicked" << std::endl;
+
     gtk_box_append(GTK_BOX(buttonBox), newFolderBtn);
+    std::cout << "🔧 'New Folder' button added to buttonBox" << std::endl;
 
     GtkWidget* editBtn = gtk_button_new_with_label("✏️ Edit");
     g_signal_connect(editBtn, "clicked", G_CALLBACK(onEditBookmarkClicked), this);
@@ -415,6 +448,56 @@ void BrayaBookmarks::refreshBookmarksList() {
     while ((child = gtk_widget_get_first_child(bookmarksList)) != nullptr) {
         gtk_list_box_remove(GTK_LIST_BOX(bookmarksList), child);
     }
+
+    // Get search query if search entry exists
+    std::string searchQuery;
+    if (searchEntry) {
+        const char* text = gtk_editable_get_text(GTK_EDITABLE(searchEntry));
+        if (text) {
+            searchQuery = text;
+        }
+    }
+
+    // Convert search query to lowercase for case-insensitive search
+    std::string lowerQuery = searchQuery;
+    std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(), ::tolower);
+
+    // Helper lambda to check if a bookmark matches the search query
+    auto matchesSearch = [&lowerQuery](const Bookmark& bm) -> bool {
+        if (lowerQuery.empty()) return true;
+
+        std::string lowerName = bm.name;
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
+
+        if (lowerName.find(lowerQuery) != std::string::npos) {
+            return true;
+        }
+
+        if (!bm.isFolder) {
+            std::string lowerUrl = bm.url;
+            std::transform(lowerUrl.begin(), lowerUrl.end(), lowerUrl.begin(), ::tolower);
+            if (lowerUrl.find(lowerQuery) != std::string::npos) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    // Helper lambda to check if a folder or any of its children match the search
+    auto folderMatchesSearch = [&lowerQuery, &matchesSearch](const Bookmark& folder) -> bool {
+        if (lowerQuery.empty()) return true;
+
+        // Check if folder name matches
+        if (matchesSearch(folder)) return true;
+
+        // Check if any children match
+        for (const auto& child : folder.children) {
+            if (matchesSearch(child)) return true;
+        }
+
+        return false;
+    };
 
     // Helper lambda to add a bookmark row
     auto addBookmarkRow = [this](const Bookmark& bm, int parentIdx, int childIdx, int indentLevel) {
@@ -504,13 +587,38 @@ void BrayaBookmarks::refreshBookmarksList() {
     for (size_t i = 0; i < bookmarks.size(); i++) {
         const auto& bm = bookmarks[i];
 
-        // Add top-level bookmark/folder
-        addBookmarkRow(bm, -1, i, 0);
+        // If searching, check if this item matches
+        if (!lowerQuery.empty()) {
+            if (bm.isFolder) {
+                // For folders, show if folder name matches OR any child matches
+                if (!folderMatchesSearch(bm)) {
+                    continue; // Skip this folder
+                }
 
-        // If it's a folder, add its children
-        if (bm.isFolder) {
-            for (size_t j = 0; j < bm.children.size(); j++) {
-                addBookmarkRow(bm.children[j], i, j, 1);
+                // Show the folder
+                addBookmarkRow(bm, -1, i, 0);
+
+                // Show only matching children
+                for (size_t j = 0; j < bm.children.size(); j++) {
+                    if (matchesSearch(bm.children[j])) {
+                        addBookmarkRow(bm.children[j], i, j, 1);
+                    }
+                }
+            } else {
+                // For regular bookmarks, show only if it matches
+                if (matchesSearch(bm)) {
+                    addBookmarkRow(bm, -1, i, 0);
+                }
+            }
+        } else {
+            // No search query, show everything
+            addBookmarkRow(bm, -1, i, 0);
+
+            // If it's a folder, add its children
+            if (bm.isFolder) {
+                for (size_t j = 0; j < bm.children.size(); j++) {
+                    addBookmarkRow(bm.children[j], i, j, 1);
+                }
             }
         }
     }
@@ -603,6 +711,7 @@ void BrayaBookmarks::onAddBookmarkClicked(GtkButton* button, gpointer data) {
         if (strlen(name) > 0 && strlen(url) > 0) {
             bookmarks->addBookmark(name, url, finalFolder);
             bookmarks->refreshBookmarksList();
+            bookmarks->triggerRefresh();  // Update the bookmarks bar
         }
 
         gtk_window_destroy(GTK_WINDOW(widgets[3]));
@@ -619,11 +728,22 @@ void BrayaBookmarks::onAddBookmarkClicked(GtkButton* button, gpointer data) {
 void BrayaBookmarks::onAddFolderClicked(GtkButton* button, gpointer data) {
     BrayaBookmarks* bookmarks = static_cast<BrayaBookmarks*>(data);
 
+    std::cout << "📁 onAddFolderClicked called" << std::endl;
+
     std::string folderName = showNewFolderDialog(GTK_WINDOW(bookmarks->managerDialog));
 
+    std::cout << "📁 Folder name entered: '" << folderName << "'" << std::endl;
+
     if (!folderName.empty()) {
+        std::cout << "📁 Adding folder: " << folderName << std::endl;
         bookmarks->addFolder(folderName);
+        std::cout << "📁 Refreshing bookmarks list..." << std::endl;
         bookmarks->refreshBookmarksList();
+        std::cout << "📁 Triggering refresh callback..." << std::endl;
+        bookmarks->triggerRefresh();  // Update the bookmarks bar
+        std::cout << "📁 Folder creation complete!" << std::endl;
+    } else {
+        std::cout << "📁 Folder creation cancelled (empty name)" << std::endl;
     }
 }
 
@@ -757,6 +877,7 @@ void BrayaBookmarks::onEditBookmarkClicked(GtkButton* button, gpointer data) {
                 bookmarks->saveToFile();
             }
             bookmarks->refreshBookmarksList();
+            bookmarks->triggerRefresh();  // Update the bookmarks bar
         } else {
             // For bookmarks, update name, URL, and folder
             const char* url = gtk_editable_get_text(GTK_EDITABLE(widgets[1]));
@@ -803,6 +924,7 @@ void BrayaBookmarks::onEditBookmarkClicked(GtkButton* button, gpointer data) {
             }
 
             bookmarks->refreshBookmarksList();
+            bookmarks->triggerRefresh();  // Update the bookmarks bar
         }
 
         gtk_window_destroy(GTK_WINDOW(widgets[3]));
@@ -852,6 +974,7 @@ void BrayaBookmarks::onDeleteBookmarkClicked(GtkButton* button, gpointer data) {
     }
 
     bookmarks->refreshBookmarksList();
+    bookmarks->triggerRefresh();  // Update the bookmarks bar
 }
 
 void BrayaBookmarks::onBookmarkDoubleClicked(GtkListBox* box, GtkListBoxRow* row, gpointer data) {
@@ -1429,20 +1552,38 @@ void BrayaBookmarks::updateBookmarksBar(GtkWidget* bookmarksBar,
     g_object_set_data(G_OBJECT(bookmarksBar), "right-click-callback", (gpointer)rightClickCallback);
     g_object_set_data(G_OBJECT(bookmarksBar), "bookmarks-manager", this);
 
-    // Clear existing bookmarks
+    // Clear existing bookmarks with proper cleanup
     GtkWidget* child = gtk_widget_get_first_child(bookmarksBar);
     while (child) {
         GtkWidget* next = gtk_widget_get_next_sibling(child);
+
+        // If this is a button, check for and destroy any popover children
+        if (GTK_IS_BUTTON(child)) {
+            GtkWidget* popover_child = gtk_widget_get_first_child(child);
+            while (popover_child) {
+                GtkWidget* popover_next = gtk_widget_get_next_sibling(popover_child);
+                if (GTK_IS_POPOVER(popover_child)) {
+                    gtk_widget_unparent(popover_child);
+                }
+                popover_child = popover_next;
+            }
+        }
+
         gtk_box_remove(GTK_BOX(bookmarksBar), child);
         child = next;
     }
 
     // Add bookmarks from root folder (empty folder = bookmarks bar)
     for (const auto& bookmark : bookmarks) {
+        std::cout << "  → Checking bookmark: " << bookmark.name
+                  << " | folder='" << bookmark.folder << "' | isFolder=" << bookmark.isFolder << std::endl;
+
         if (bookmark.folder.empty() || bookmark.folder == "Bookmarks Bar") {
+            std::cout << "    ✓ Will appear on bar" << std::endl;
 
             // Check if this is a folder
             if (bookmark.isFolder) {
+                std::cout << "    📁 This is a FOLDER - creating folder button" << std::endl;
                 // Create folder button with dropdown (using regular button for better drag support)
                 GtkWidget* btn = gtk_button_new();
                 gtk_widget_add_css_class(btn, "bookmark-bar-item");
