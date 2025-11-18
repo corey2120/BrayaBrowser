@@ -42,6 +42,15 @@ void BrayaExtensionManager::setupWebContext() {
         return;
     }
 
+    // Enable favicons through WebsiteDataManager (WebKitGTK 6.0+ API)
+    // Favicons are now stored automatically in the website data directory
+    std::string cacheDir = std::string(g_get_user_cache_dir()) + "/braya-browser";
+    g_mkdir_with_parents(cacheDir.c_str(), 0700);
+
+    // Set cache model to optimize for web browsing
+    webkit_web_context_set_cache_model(m_context, WEBKIT_CACHE_MODEL_WEB_BROWSER);
+    std::cout << "✓ WebKit cache model set to WEB_BROWSER (enables favicons)" << std::endl;
+
     // Set the directory where WebKit will look for web process extensions
     // The web extension .so file should be in this directory
     webkit_web_context_set_web_process_extensions_directory(m_context, m_extensionDirectory.c_str());

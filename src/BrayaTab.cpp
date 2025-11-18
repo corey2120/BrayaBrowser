@@ -596,8 +596,8 @@ void BrayaTab::autoFillPasswords() {
     auto escapeJs = [](const std::string& str) {
         std::string escaped = str;
         size_t pos = 0;
-        while ((pos = escaped.find('\'', pos)) != std::string::npos) {
-            escaped.replace(pos, 1, "\\'");
+        while ((pos = escaped.find('"', pos)) != std::string::npos) {
+            escaped.replace(pos, 1, "\"");
             pos += 2;
         }
         return escaped;
@@ -933,8 +933,8 @@ void BrayaTab::showAutofillSuggestions(const GdkRectangle* anchorRect) {
                 auto escapeJs = [](const std::string& str) {
                     std::string escaped = str;
                     size_t pos = 0;
-                    while ((pos = escaped.find('\'', pos)) != std::string::npos) {
-                        escaped.replace(pos, 1, "\\'");
+                    while ((pos = escaped.find('"', pos)) != std::string::npos) {
+                        escaped.replace(pos, 1, "\"");
                         pos += 2;
                     }
                     return escaped;
@@ -1349,7 +1349,7 @@ void BrayaTab::toggleReaderMode() {
                 
                 // Remove scripts, ads, nav, etc
                 const removeSelectors = ['script', 'style', 'nav', 'header', 'footer', 
-                                        'aside', '.ad', '.ads', '.advertisement', 
+                                        'aside', '.ad', '.ads', '.advertisement',
                                         '.social-share', '.comments'];
                 removeSelectors.forEach(sel => {
                     clonedArticle.querySelectorAll(sel).forEach(el => el.remove());
@@ -1499,11 +1499,11 @@ void BrayaTab::injectExtensionContentScripts(const std::string& pageUrl) {
                     std::string escapedCss;
                     for (char c : cssContent) {
                         if (c == '\\') escapedCss += "\\\\";
-                        else if (c == '\'') escapedCss += "\\'";
-                        else if (c == '\"') escapedCss += "\\\"";
-                        else if (c == '\n') escapedCss += "\\n";
-                        else if (c == '\r') escapedCss += "\\r";
-                        else if (c == '\t') escapedCss += "\\t";
+                        else if (c == '\'') escapedCss += "\'";
+                        else if (c == '"') escapedCss += "\"";
+                        else if (c == '\n') escapedCss += "\n";
+                        else if (c == '\r') escapedCss += "\r";
+                        else if (c == '\t') escapedCss += "\t";
                         else escapedCss += c;
                     }
 

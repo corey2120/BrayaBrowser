@@ -5,7 +5,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)                                                                                                                
                                                                                                                                                    
 # Find required packages                                                                                                                           
-find_package(PkgConfig REQUIRED)                                                                                                                   
+# Find required packages
+find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 REQUIRED gtk4)
 pkg_check_modules(WEBKIT REQUIRED webkitgtk-6.0)
 pkg_check_modules(OPENSSL REQUIRED openssl)
@@ -21,13 +22,13 @@ include_directories(
     ${WEBKIT_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIRS}
     ${JSON_GLIB_INCLUDE_DIRS}
-)                                                                                                                                                  
+)
                                                                                                                                                    
 # Link directories                                                                                                                                 
-link_directories(                                                                                                                                  
-    ${GTK4_LIBRARY_DIRS}                                                                                                                           
-    ${WEBKIT_LIBRARY_DIRS}                                                                                                                         
-)                                                                                                                                                  
+link_directories(
+    ${GTK4_LIBRARY_DIRS}
+    ${WEBKIT_LIBRARY_DIRS}
+)
                                                                                                                                                    
 # Source files                                                                                                                                     
 set(SOURCES                                                                                                                                        

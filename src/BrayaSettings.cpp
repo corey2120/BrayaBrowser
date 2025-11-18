@@ -34,7 +34,7 @@ BrayaSettings::BrayaSettings()
     : theme(DARK), fontSize(13), fontFamily("Sans"), showBookmarks(true),
       blockTrackers(true), blockAds(false), httpsOnly(false),
       enableJavaScript(true), enableWebGL(true), enablePlugins(false),
-      showTabPreviews(true),
+      showTabPreviews(true), memoryIndicatorEnabled(true),
       downloadPath(""), homePage("about:braya"), searchEngine("DuckDuckGo"),
       dialog(nullptr), notebook(nullptr), searchEntry(nullptr), navList(nullptr),
       webContext(nullptr),

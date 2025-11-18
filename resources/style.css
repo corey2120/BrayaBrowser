@@ -78,6 +78,31 @@ window {
     border-radius: 8px;
 }
 
+/* Tab close button - Zen style (appears on hover) */
+.tab-close-button {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 2px;
+    padding: 0;
+    margin: 0;
+    min-width: 10px;
+    min-height: 10px;
+    font-size: 8px;
+    color: rgba(255, 255, 255, 0.5);
+    transition: all 0.15s ease, opacity 0.2s ease;
+}
+
+.tab-close-button:hover {
+    background: rgba(255, 75, 75, 0.8);
+    color: #ffffff;
+    transform: scale(1.15);
+}
+
+.tab-close-button:active {
+    background: rgba(255, 50, 50, 0.95);
+    transform: scale(0.9);
+}
+
 /* Headerbar / Titlebar - Firefox style COMPACT */
 headerbar.titlebar {
     background: linear-gradient(90deg, #0f1419 0%, #1a1f26 100%);

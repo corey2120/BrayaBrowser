@@ -60,6 +60,7 @@ public:
     bool getEnableWebGL() const { return enableWebGL; }
     bool getEnablePlugins() const { return enablePlugins; }
     bool getShowTabPreviews() const { return showTabPreviews; }
+    bool getMemoryIndicatorEnabled() const { return memoryIndicatorEnabled; }
     std::string getDownloadPath() const { return downloadPath; }
     std::string getHomePage() const { return homePage; }
     std::string getSearchEngine() const { return searchEngine; }
@@ -99,6 +100,7 @@ private:
     bool enableWebGL;
     bool enablePlugins;
     bool showTabPreviews;
+    bool memoryIndicatorEnabled;
     std::string downloadPath;
     std::string homePage;
     std::string searchEngine;

@@ -31,6 +31,11 @@ public:
     bool isInReaderMode() const { return readerMode; }
     void toggleReaderMode();
 
+    // 💤 Tab suspension (Phase 2 memory optimization)
+    void suspend();
+    void resume();
+    bool isSuspended() const { return suspended; }
+
     void setTabButton(GtkWidget* button) { tabButton = button; }
     void updateButton();
 
@@ -76,6 +81,12 @@ private:
     bool muted;
     bool readerMode;
     std::string originalContent; // For reader mode toggle
+
+    // 💤 Tab suspension state (Phase 2 memory optimization)
+    bool suspended;
+    std::string suspendedUrl;
+    std::string suspendedTitle;
+    GdkTexture* cachedFavicon;
 
     WebKitWebView* webView;
     GtkWidget* scrolledWindow;

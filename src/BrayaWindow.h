@@ -95,6 +95,8 @@ private:
     void createStatusBar();
     void createExtensionButtons();
     void updateExtensionButtons();
+    long getMemoryUsage();
+    void updateMemoryIndicator();
     
     // UI Components
     GtkWidget* window;
@@ -119,8 +121,10 @@ private:
     GtkWidget* extensionButtonsBox;
     GtkWidget* downloadsBtn;
     GtkWidget* adBlockerShieldBtn;
+    GtkWidget* memoryLabel;
 
     GtkCssProvider* cssProvider;
+    guint memoryTimerSourceId;
 
     // Split view state
     bool isSplitView;

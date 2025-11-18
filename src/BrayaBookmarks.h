@@ -6,6 +6,7 @@
 #include <vector>
 #include <ctime>
 #include <functional>
+#include <iostream>
 
 struct Bookmark {
     std::string name;
@@ -61,8 +62,20 @@ public:
     void addCurrentPage(const std::string& title, const std::string& url, GdkTexture* favicon);
 
     // Set refresh callback for UI updates
-    void setRefreshCallback(std::function<void()> callback) { refreshCallback = callback; }
-    void triggerRefresh() { if (refreshCallback) refreshCallback(); }
+    void setRefreshCallback(std::function<void()> callback) {
+        std::cout << "📌 setRefreshCallback called - callback is " << (callback ? "SET" : "NULL") << std::endl;
+        refreshCallback = callback;
+    }
+    void triggerRefresh() {
+        std::cout << "🔄 triggerRefresh called - refreshCallback is " << (refreshCallback ? "SET" : "NULL") << std::endl;
+        if (refreshCallback) {
+            std::cout << "🔄 Calling refreshCallback..." << std::endl;
+            refreshCallback();
+            std::cout << "🔄 refreshCallback returned" << std::endl;
+        } else {
+            std::cout << "⚠️  WARNING: refreshCallback is NULL!" << std::endl;
+        }
+    }
 
     // Speed dial / New tab page
     GtkWidget* createSpeedDial();

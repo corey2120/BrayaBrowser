@@ -160,6 +160,31 @@ window {
     border-radius: 8px;
 }
 
+/* Tab close button - Zen style (appears on hover) */
+.tab-close-button {
+    background: rgba(100, 100, 100, 0.15);
+    border: none;
+    border-radius: 2px;
+    padding: 0;
+    margin: 0;
+    min-width: 10px;
+    min-height: 10px;
+    font-size: 8px;
+    color: rgba(60, 60, 60, 0.6);
+    transition: all 0.15s ease, opacity 0.2s ease;
+}
+
+.tab-close-button:hover {
+    background: rgba(220, 38, 38, 0.85);
+    color: #ffffff;
+    transform: scale(1.15);
+}
+
+.tab-close-button:active {
+    background: rgba(200, 30, 30, 1.0);
+    transform: scale(0.9);
+}
+
 /* Headerbar / Titlebar - Compact */
 headerbar.titlebar {
     background: var(--braya-headerbar-bg);
