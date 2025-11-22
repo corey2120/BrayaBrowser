@@ -1124,13 +1124,7 @@ void BrayaSettings::updateAdBlockerUI() {
     if (removeCookieWarningsCheck) gtk_check_button_set_active(GTK_CHECK_BUTTON(removeCookieWarningsCheck), features.remove_cookie_warnings);
     if (blockNSFWCheck) gtk_check_button_set_active(GTK_CHECK_BUTTON(blockNSFWCheck), features.block_nsfw);
 
-    // Update statistics
-    if (statsLabel) {
-        BlockingStats stats = m_adBlocker->getStats();
-        std::string statsText = "Total Blocked: " + std::to_string(stats.total_blocked) + "\n" +
-                                "Blocked Today: " + std::to_string(stats.blocked_today);
-        gtk_label_set_text(GTK_LABEL(statsLabel), statsText.c_str());
-    }
+    // Statistics removed in v1.0.8
 
     // Update whitelist display
     if (notebook) {
