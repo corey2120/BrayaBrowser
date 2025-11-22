@@ -84,6 +84,49 @@ public:
         bool enableGlow = true;
         int glowIntensity = 15;
     };
+
+    // UI Visibility - Control what's shown/hidden
+    struct UIVisibility {
+        bool showBookmarksBar = true;
+        bool showStatusBar = false;
+        bool showSidebar = true;
+        bool showBackButton = true;
+        bool showForwardButton = true;
+        bool showReloadButton = true;
+        bool showHomeButton = true;
+        bool showDownloadsButton = true;
+        bool showExtensionsButton = true;
+        bool showSettingsButton = true;
+        bool showSecurityIndicator = true;
+        bool compactMode = false;
+    };
+
+    // Advanced Layout
+    struct AdvancedLayout {
+        // Tab settings
+        int tabMinWidth = 180;
+        int tabMaxWidth = 280;
+        int tabHeight = 48;
+        bool showTabCloseButton = true;
+        bool showTabIcons = true;
+        bool animateTabs = true;
+
+        // URL bar
+        int urlBarHeight = 40;
+        int urlBarBorderRadius = 24;
+        bool urlBarShowProtocol = false;
+        bool urlBarCenterText = false;
+
+        // Sidebar
+        int sidebarWidth = 56;
+        bool sidebarAutoHide = false;
+        std::string sidebarPosition = "left"; // left or right
+
+        // Spacing
+        int globalSpacing = 4;
+        int buttonSpacing = 8;
+        int tabSpacing = 2;
+    };
     
     BrayaCustomization();
     
@@ -104,6 +147,8 @@ public:
     Typography getTypography() const { return typography; }
     Layout getLayout() const { return layout; }
     Effects getEffects() const { return effects; }
+    UIVisibility getUIVisibility() const { return uiVisibility; }
+    AdvancedLayout getAdvancedLayout() const { return advancedLayout; }
     ThemeColors getCurrentTheme() const;
 
     // Setters
@@ -111,15 +156,24 @@ public:
     void setTypography(const Typography& t) { typography = t; }
     void setLayout(const Layout& l) { layout = l; }
     void setEffects(const Effects& e) { effects = e; }
+    void setUIVisibility(const UIVisibility& v) { uiVisibility = v; }
+    void setAdvancedLayout(const AdvancedLayout& l) { advancedLayout = l; }
 
     void save();
     void load();
+
+    // Custom CSS
+    void loadCustomCSS(const std::string& cssFile);
+    void importCustomCSS();
+    std::string getCustomCSSPath();
     
 private:
     Colors colors;
     Typography typography;
     Layout layout;
     Effects effects;
+    UIVisibility uiVisibility;
+    AdvancedLayout advancedLayout;
 
     GtkWidget* dialog;
     GtkWidget* notebook;
@@ -131,6 +185,9 @@ private:
 
     void createDialog(GtkWindow* parent);
     GtkWidget* createColorsTab();
+    GtkWidget* createCustomCSSTab();
+    GtkWidget* createUIVisibilityTab();
+    GtkWidget* createAdvancedTab();
     GtkWidget* createTypographyTab();
     GtkWidget* createLayoutTab();
     GtkWidget* createEffectsTab();

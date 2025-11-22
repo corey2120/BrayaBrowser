@@ -17,7 +17,9 @@ public:
     // Export
     static bool exportToHTML(const std::string& path, const std::vector<ImportedBookmark>& bookmarks);
     static bool exportToJSON(const std::string& path, const std::vector<ImportedBookmark>& bookmarks);
-    
+    static bool exportToCSV(const std::string& path, const std::vector<ImportedBookmark>& bookmarks);
+    static bool exportToMarkdown(const std::string& path, const std::vector<ImportedBookmark>& bookmarks);
+
     // Import
     static std::vector<ImportedBookmark> importFromHTML(const std::string& path);
     static std::vector<ImportedBookmark> importFromJSON(const std::string& path);

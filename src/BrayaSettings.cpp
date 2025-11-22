@@ -253,7 +253,7 @@ void BrayaSettings::createDialog(GtkWindow* parent) {
     gtk_widget_set_halign(heroTitle, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(hero), heroTitle);
 
-    GtkWidget* heroSubtitle = gtk_label_new("Switch themes, tighten privacy, or fine‑tune extensions just like Vivaldi’s control center.");
+    GtkWidget* heroSubtitle = gtk_label_new("Switch themes, tighten privacy, and fine‑tune every aspect of your browser experience.");
     gtk_widget_add_css_class(heroSubtitle, "dim-label");
     gtk_widget_set_halign(heroSubtitle, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(hero), heroSubtitle);

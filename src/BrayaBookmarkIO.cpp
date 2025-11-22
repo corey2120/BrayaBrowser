@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iostream>
 #include <regex>
+#include <functional>
 #include <json-glib/json-glib.h>
 
 std::string BrayaBookmarkIO::escapeHTML(const std::string& text) {
@@ -222,7 +223,90 @@ std::vector<ImportedBookmark> BrayaBookmarkIO::importFromJSON(const std::string&
     }
     
     g_object_unref(parser);
-    
+
     std::cout << "✓ Imported " << bookmarks.size() << " bookmarks from JSON" << std::endl;
     return bookmarks;
+}
+
+// CSV Export (Title, URL, Folder)
+bool BrayaBookmarkIO::exportToCSV(const std::string& path, const std::vector<ImportedBookmark>& bookmarks) {
+    std::ofstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file for CSV export: " << path << std::endl;
+        return false;
+    }
+
+    // Write CSV header
+    file << "Title,URL,Folder\n";
+
+    // Helper function to write bookmarks recursively
+    std::function<void(const std::vector<ImportedBookmark>&, const std::string&)> writeCSV;
+    writeCSV = [&](const std::vector<ImportedBookmark>& bms, const std::string& parentFolder) {
+        for (const auto& bm : bms) {
+            if (bm.isFolder) {
+                // Recursively process folder
+                std::string folderPath = parentFolder.empty() ? bm.title : parentFolder + "/" + bm.title;
+                writeCSV(bm.children, folderPath);
+            } else {
+                // Write bookmark entry
+                std::string title = bm.title;
+                std::string url = bm.url;
+                // Escape quotes in CSV
+                if (title.find(',') != std::string::npos || title.find('"') != std::string::npos) {
+                    std::string escaped = "\"";
+                    for (char c : title) {
+                        if (c == '"') escaped += "\"\"";
+                        else escaped += c;
+                    }
+                    escaped += "\"";
+                    title = escaped;
+                }
+                file << title << "," << url << "," << parentFolder << "\n";
+            }
+        }
+    };
+
+    writeCSV(bookmarks, "");
+
+    file.close();
+    std::cout << "✓ Exported bookmarks to CSV: " << path << std::endl;
+    return true;
+}
+
+// Markdown Export
+bool BrayaBookmarkIO::exportToMarkdown(const std::string& path, const std::vector<ImportedBookmark>& bookmarks) {
+    std::ofstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file for Markdown export: " << path << std::endl;
+        return false;
+    }
+
+    file << "# Bookmarks\n\n";
+    file << "Exported from Braya Browser\n\n";
+    file << "---\n\n";
+
+    // Helper function to write bookmarks recursively
+    std::function<void(const std::vector<ImportedBookmark>&, int)> writeMarkdown;
+    writeMarkdown = [&](const std::vector<ImportedBookmark>& bms, int level) {
+        for (const auto& bm : bms) {
+            std::string indent(level * 2, ' ');
+            if (bm.isFolder) {
+                // Write folder as heading
+                std::string heading(level + 2, '#');
+                file << heading << " " << bm.title << "\n\n";
+                // Recursively process children
+                writeMarkdown(bm.children, level + 1);
+            } else {
+                // Write bookmark as markdown link
+                file << indent << "- [" << bm.title << "](" << bm.url << ")\n";
+            }
+        }
+        if (level > 0) file << "\n";
+    };
+
+    writeMarkdown(bookmarks, 0);
+
+    file.close();
+    std::cout << "✓ Exported bookmarks to Markdown: " << path << std::endl;
+    return true;
 }

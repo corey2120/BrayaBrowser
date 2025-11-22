@@ -544,3 +544,26 @@ separator {
     color: var(--braya-accent);
     box-shadow: var(--braya-glow-subtle);
 }
+
+/* Theme Preset Buttons */
+.preset-button {
+    background: linear-gradient(135deg, rgba(0, 217, 255, 0.1), rgba(0, 217, 255, 0.05));
+    border: 1px solid rgba(0, 217, 255, 0.3);
+    border-radius: 8px;
+    padding: 10px 16px;
+    min-width: 100px;
+    transition: all 0.2s ease;
+    font-weight: 600;
+}
+
+.preset-button:hover {
+    background: linear-gradient(135deg, rgba(0, 217, 255, 0.2), rgba(0, 217, 255, 0.1));
+    border-color: rgba(0, 217, 255, 0.5);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 217, 255, 0.2);
+}
+
+.preset-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(0, 217, 255, 0.3);
+}

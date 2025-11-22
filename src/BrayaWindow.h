@@ -71,6 +71,7 @@ public:
     
     // Theme
     void applyTheme(int themeId);
+    void loadUserChrome();  // Zen-style userChrome.css
 
     // Downloads UI
     void showDownloadsButton();
@@ -95,6 +96,7 @@ private:
     void createStatusBar();
     void createExtensionButtons();
     void updateExtensionButtons();
+    void updateSecurityIndicator(const std::string& url);
     long getMemoryUsage();
     void updateMemoryIndicator();
     
@@ -106,6 +108,8 @@ private:
     GtkWidget* contentBox;
     GtkWidget* navbar;
     GtkWidget* urlEntry;
+    GtkWidget* urlBox;  // Container for URL entry + security indicator
+    GtkWidget* securityIcon;  // HTTPS/HTTP indicator
     GtkWidget* backBtn;
     GtkWidget* forwardBtn;
     GtkWidget* reloadBtn;

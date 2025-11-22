@@ -29,6 +29,10 @@ BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, B
     WebKitSettings* settings = webkit_web_view_get_settings(webView);
     webkit_settings_set_enable_developer_extras(settings, TRUE);
     webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+
+    // 🚀 Performance: Enable hardware acceleration
+    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
+    webkit_settings_set_enable_webgl(settings, TRUE);
     
     // Create scrolled window
     scrolledWindow = gtk_scrolled_window_new();
@@ -1687,6 +1691,10 @@ void BrayaTab::resume() {
     WebKitSettings* settings = webkit_web_view_get_settings(webView);
     webkit_settings_set_enable_developer_extras(settings, TRUE);
     webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+
+    // 🚀 Performance: Enable hardware acceleration
+    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
+    webkit_settings_set_enable_webgl(settings, TRUE);
 
     // Reattach to scrolled window
     if (scrolledWindow && GTK_IS_WIDGET(scrolledWindow)) {

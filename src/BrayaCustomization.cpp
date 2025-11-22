@@ -37,7 +37,7 @@ void BrayaCustomization::createDialog(GtkWindow* parent) {
     // Header
     GtkWidget* header = gtk_label_new(nullptr);
     gtk_label_set_markup(GTK_LABEL(header), 
-        "<span size='xx-large' weight='bold'>🎨 Vivaldi-Level Customization</span>");
+        "<span size='xx-large' weight='bold'>🎨 Advanced Customization Studio</span>");
     gtk_box_append(GTK_BOX(mainBox), header);
     
     GtkWidget* subtitle = gtk_label_new("Customize every aspect of Braya's appearance");
@@ -50,13 +50,17 @@ void BrayaCustomization::createDialog(GtkWindow* parent) {
     gtk_widget_set_vexpand(notebook, TRUE);
     
     // Create tabs
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createColorsTab(), 
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createColorsTab(),
         gtk_label_new("🎨 Colors"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createTypographyTab(), 
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createCustomCSSTab(),
+        gtk_label_new("💻 Custom CSS"));
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createUIVisibilityTab(),
+        gtk_label_new("👁️ UI Elements"));
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createAdvancedTab(),
+        gtk_label_new("⚙️ Advanced"));
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createTypographyTab(),
         gtk_label_new("✍️ Typography"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createLayoutTab(), 
-        gtk_label_new("📐 Layout"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createEffectsTab(), 
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), createEffectsTab(),
         gtk_label_new("✨ Effects"));
     
     // Buttons
@@ -97,9 +101,52 @@ GtkWidget* BrayaCustomization::createColorsTab() {
 
     int row = 0;
 
+    // Theme Presets Section
+    GtkWidget* presetsLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(presetsLabel), "<b>🎨 Theme Presets</b>");
+    gtk_widget_set_halign(presetsLabel, GTK_ALIGN_START);
+    gtk_grid_attach(GTK_GRID(grid), presetsLabel, 0, row++, 2, 1);
+
+    GtkWidget* presetsDesc = gtk_label_new("Choose a pre-made theme or customize colors below");
+    gtk_widget_set_halign(presetsDesc, GTK_ALIGN_START);
+    gtk_widget_add_css_class(presetsDesc, "dim-label");
+    gtk_grid_attach(GTK_GRID(grid), presetsDesc, 0, row++, 2, 1);
+
+    // Create preset buttons in a flow box
+    GtkWidget* presetFlow = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(presetFlow), GTK_SELECTION_NONE);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(presetFlow), 5);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(presetFlow), 8);
+    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(presetFlow), 8);
+    gtk_widget_set_margin_bottom(presetFlow, 20);
+
+    // Add preset buttons
+    std::vector<std::string> presetNames = getAvailablePresets();
+    for (const auto& presetName : presetNames) {
+        GtkWidget* btn = gtk_button_new_with_label(presetName.c_str());
+        gtk_widget_add_css_class(btn, "preset-button");
+        g_object_set_data(G_OBJECT(btn), "preset-name", (gpointer)presetName.c_str());
+        g_object_set_data(G_OBJECT(btn), "customization", this);
+        g_signal_connect(btn, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer) {
+            const char* presetName = (const char*)g_object_get_data(G_OBJECT(button), "preset-name");
+            BrayaCustomization* custom = (BrayaCustomization*)g_object_get_data(G_OBJECT(button), "customization");
+            custom->loadPreset(presetName);
+            custom->applyCustomization();
+        }), nullptr);
+        gtk_flow_box_append(GTK_FLOW_BOX(presetFlow), btn);
+    }
+
+    gtk_grid_attach(GTK_GRID(grid), presetFlow, 0, row++, 2, 1);
+
+    // Separator
+    GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(separator, 10);
+    gtk_widget_set_margin_bottom(separator, 20);
+    gtk_grid_attach(GTK_GRID(grid), separator, 0, row++, 2, 1);
+
     // Section: Main CSS Variables
     GtkWidget* mainLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(mainLabel), "<b>Main Theme Colors (CSS Variables)</b>");
+    gtk_label_set_markup(GTK_LABEL(mainLabel), "<b>Custom Theme Colors (CSS Variables)</b>");
     gtk_widget_set_halign(mainLabel, GTK_ALIGN_START);
     gtk_grid_attach(GTK_GRID(grid), mainLabel, 0, row++, 2, 1);
 
@@ -385,19 +432,40 @@ GtkWidget* BrayaCustomization::createEffectsTab() {
 
 GtkWidget* BrayaCustomization::createColorPicker(const std::string& label, std::string* colorVar) {
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    
+
     GtkWidget* lbl = gtk_label_new(label.c_str());
     gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+    gtk_widget_set_hexpand(lbl, TRUE);
     gtk_box_append(GTK_BOX(box), lbl);
-    
+
     GtkWidget* btn = gtk_color_button_new();
-    gtk_box_append(GTK_BOX(box), btn);
-    
-    // Set current color (simplified - would need proper parsing)
+
+    // Parse and set current color
     GdkRGBA color;
-    gdk_rgba_parse(&color, "#00d9ff"); // Default
-    gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(btn), &color);
-    
+    if (gdk_rgba_parse(&color, colorVar->c_str())) {
+        gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(btn), &color);
+    }
+
+    // Connect color change signal
+    g_object_set_data(G_OBJECT(btn), "color-var", colorVar);
+    g_signal_connect(btn, "color-set", G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+        std::string* colorVar = (std::string*)g_object_get_data(G_OBJECT(button), "color-var");
+        GdkRGBA rgba;
+        gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &rgba);
+
+        // Convert RGBA to hex string
+        char hex[8];
+        snprintf(hex, sizeof(hex), "#%02x%02x%02x",
+                 (int)(rgba.red * 255),
+                 (int)(rgba.green * 255),
+                 (int)(rgba.blue * 255));
+        *colorVar = hex;
+
+        std::cout << "✓ Color updated to: " << hex << std::endl;
+    }), nullptr);
+
+    gtk_box_append(GTK_BOX(box), btn);
+
     return box;
 }
 
@@ -619,9 +687,32 @@ std::string BrayaCustomization::generateCustomCSS() {
 
 void BrayaCustomization::applyCustomization() {
     std::cout << "✓ Applying custom customization..." << std::endl;
-    // Generate and apply custom CSS
+
+    // Generate custom CSS
     std::string css = generateCustomCSS();
+
+    // Apply CSS to display
+    GError* error = nullptr;
+    gtk_css_provider_load_from_string(cssProvider, css.c_str());
+
+    if (error) {
+        std::cerr << "ERROR: Failed to load custom CSS: " << error->message << std::endl;
+        g_error_free(error);
+        return;
+    }
+
+    // Apply to all displays
+    GdkDisplay* display = gdk_display_get_default();
+    gtk_style_context_add_provider_for_display(
+        display,
+        GTK_STYLE_PROVIDER(cssProvider),
+        GTK_STYLE_PROVIDER_PRIORITY_USER
+    );
+
+    // Save settings
     save();
+
+    std::cout << "✅ Custom theme applied and saved!" << std::endl;
 }
 
 void BrayaCustomization::save() {
@@ -862,4 +953,336 @@ void BrayaCustomization::onResetClicked(GtkButton* button, gpointer data) {
     custom->effects = Effects();
     gtk_window_close(GTK_WINDOW(custom->dialog));
     custom->dialog = nullptr;
+}
+
+// Custom CSS Tab
+GtkWidget* BrayaCustomization::createCustomCSSTab() {
+    GtkWidget* scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
+    gtk_widget_set_margin_start(box, 20);
+    gtk_widget_set_margin_end(box, 20);
+    gtk_widget_set_margin_top(box, 20);
+    gtk_widget_set_margin_bottom(box, 20);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), box);
+
+    // Header
+    GtkWidget* header = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(header), "<b>💻 Custom CSS - Zen Browser Style</b>");
+    gtk_widget_set_halign(header, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(box), header);
+
+    GtkWidget* desc = gtk_label_new("Import custom CSS files to completely transform Braya's appearance.\nJust like Zen Browser's mod system!");
+    gtk_widget_set_halign(desc, GTK_ALIGN_START);
+    gtk_widget_add_css_class(desc, "dim-label");
+    gtk_box_append(GTK_BOX(box), desc);
+
+    // Import button
+    GtkWidget* importBtn = gtk_button_new_with_label("📂 Import CSS File");
+    gtk_widget_set_size_request(importBtn, 200, -1);
+    g_object_set_data(G_OBJECT(importBtn), "customization", this);
+    g_signal_connect(importBtn, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer) {
+        BrayaCustomization* custom = (BrayaCustomization*)g_object_get_data(G_OBJECT(button), "customization");
+        custom->importCustomCSS();
+    }), nullptr);
+    gtk_box_append(GTK_BOX(box), importBtn);
+
+    // Info section
+    GtkWidget* infoLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(infoLabel), "<b>✨ What You Can Do:</b>");
+    gtk_widget_set_halign(infoLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(infoLabel, 20);
+    gtk_box_append(GTK_BOX(box), infoLabel);
+
+    const char* features[] = {
+        "• Change any color, gradient, or background",
+        "• Modify element sizes and spacing",
+        "• Add custom animations and effects",
+        "• Hide or show UI elements",
+        "• Import community-made themes",
+        "• Create your own unique look"
+    };
+
+    for (const char* feature : features) {
+        GtkWidget* featureLabel = gtk_label_new(feature);
+        gtk_widget_set_halign(featureLabel, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(box), featureLabel);
+    }
+
+    // Example CSS
+    GtkWidget* exampleLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(exampleLabel), "<b>📝 Example CSS:</b>");
+    gtk_widget_set_halign(exampleLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(exampleLabel, 20);
+    gtk_box_append(GTK_BOX(box), exampleLabel);
+
+    GtkWidget* exampleText = gtk_text_view_new();
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(exampleText), FALSE);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(exampleText), TRUE);
+    gtk_widget_set_size_request(exampleText, -1, 200);
+
+    GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(exampleText));
+    gtk_text_buffer_set_text(buffer, 
+        "/* Custom Braya Browser Theme */\n"
+        ":root {\n"
+        "    --braya-accent: #ff6b6b;\n"
+        "    --braya-bg-primary: #1a1a2e;\n"
+        "    --braya-bg-secondary: #16213e;\n"
+        "}\n\n"
+        "/* Hide URL bar when not focused */\n"
+        ".url-entry:not(:focus) {\n"
+        "    opacity: 0.7;\n"
+        "}\n\n"
+        "/* Custom tab style */\n"
+        ".tab-button {\n"
+        "    border-radius: 12px;\n"
+        "    margin: 4px;\n"
+        "}", -1);
+
+    gtk_box_append(GTK_BOX(box), exampleText);
+
+    return scroll;
+}
+
+// Custom CSS Functions
+std::string BrayaCustomization::getCustomCSSPath() {
+    return std::string(g_get_home_dir()) + "/.config/braya-browser/custom.css";
+}
+
+void BrayaCustomization::importCustomCSS() {
+    GtkFileDialog* dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Import Custom CSS");
+
+    GtkFileFilter* filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "CSS Files");
+    gtk_file_filter_add_pattern(filter, "*.css");
+
+    GListStore* filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filters, filter);
+    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
+
+    gtk_file_dialog_open(dialog, GTK_WINDOW(this->dialog), nullptr,
+        +[](GObject* source, GAsyncResult* result, gpointer data) {
+            BrayaCustomization* custom = static_cast<BrayaCustomization*>(data);
+            GtkFileDialog* dialog = GTK_FILE_DIALOG(source);
+            GError* error = nullptr;
+            GFile* file = gtk_file_dialog_open_finish(dialog, result, &error);
+
+            if (file) {
+                char* path = g_file_get_path(file);
+                custom->loadCustomCSS(path);
+                g_free(path);
+                g_object_unref(file);
+            }
+        }, this);
+}
+
+void BrayaCustomization::loadCustomCSS(const std::string& cssFile) {
+    // Copy CSS file to config directory
+    std::ifstream src(cssFile, std::ios::binary);
+    std::ofstream dst(getCustomCSSPath(), std::ios::binary);
+
+    if (src && dst) {
+        dst << src.rdbuf();
+        std::cout << "✅ Custom CSS imported: " << cssFile << std::endl;
+
+        // Load and apply the CSS
+        std::ifstream file(getCustomCSSPath());
+        if (file) {
+            std::string css((std::istreambuf_iterator<char>(file)),
+                           std::istreambuf_iterator<char>());
+
+            GError* error = nullptr;
+            gtk_css_provider_load_from_string(cssProvider, css.c_str());
+
+            if (!error) {
+                GdkDisplay* display = gdk_display_get_default();
+                gtk_style_context_add_provider_for_display(
+                    display,
+                    GTK_STYLE_PROVIDER(cssProvider),
+                    GTK_STYLE_PROVIDER_PRIORITY_USER
+                );
+
+                std::cout << "✅ Custom CSS applied!" << std::endl;
+            } else {
+                std::cerr << "Error loading CSS: " << error->message << std::endl;
+                g_error_free(error);
+            }
+        }
+    }
+}
+
+// UI Visibility Tab - Control what's shown/hidden
+GtkWidget* BrayaCustomization::createUIVisibilityTab() {
+    GtkWidget* scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
+    gtk_widget_set_margin_start(box, 20);
+    gtk_widget_set_margin_end(box, 20);
+    gtk_widget_set_margin_top(box, 20);
+    gtk_widget_set_margin_bottom(box, 20);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), box);
+
+    // Header
+    GtkWidget* header = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(header), "<b>👁️ Show/Hide UI Elements</b>");
+    gtk_widget_set_halign(header, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(box), header);
+
+    GtkWidget* desc = gtk_label_new("Control which browser elements are visible");
+    gtk_widget_set_halign(desc, GTK_ALIGN_START);
+    gtk_widget_add_css_class(desc, "dim-label");
+    gtk_box_append(GTK_BOX(box), desc);
+
+    // Navigation Bar Elements
+    GtkWidget* navLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(navLabel), "<b>Navigation Bar</b>");
+    gtk_widget_set_halign(navLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(navLabel, 10);
+    gtk_box_append(GTK_BOX(box), navLabel);
+
+    auto createCheckbox = [&](const char* label, bool* value) {
+        GtkWidget* check = gtk_check_button_new_with_label(label);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(check), *value);
+        g_object_set_data(G_OBJECT(check), "value-ptr", value);
+        g_signal_connect(check, "toggled", G_CALLBACK(+[](GtkCheckButton* btn, gpointer) {
+            bool* val = (bool*)g_object_get_data(G_OBJECT(btn), "value-ptr");
+            *val = gtk_check_button_get_active(btn);
+        }), nullptr);
+        gtk_box_append(GTK_BOX(box), check);
+    };
+
+    createCheckbox("Show Back Button", &uiVisibility.showBackButton);
+    createCheckbox("Show Forward Button", &uiVisibility.showForwardButton);
+    createCheckbox("Show Reload Button", &uiVisibility.showReloadButton);
+    createCheckbox("Show Home Button", &uiVisibility.showHomeButton);
+    createCheckbox("Show Security Indicator (HTTPS lock)", &uiVisibility.showSecurityIndicator);
+
+    // Other UI Elements
+    GtkWidget* otherLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(otherLabel), "<b>Other Elements</b>");
+    gtk_widget_set_halign(otherLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(otherLabel, 15);
+    gtk_box_append(GTK_BOX(box), otherLabel);
+
+    createCheckbox("Show Bookmarks Bar", &uiVisibility.showBookmarksBar);
+    createCheckbox("Show Status Bar", &uiVisibility.showStatusBar);
+    createCheckbox("Show Sidebar", &uiVisibility.showSidebar);
+    createCheckbox("Show Downloads Button", &uiVisibility.showDownloadsButton);
+    createCheckbox("Show Extensions Button", &uiVisibility.showExtensionsButton);
+    createCheckbox("Show Settings Button", &uiVisibility.showSettingsButton);
+
+    // Compact Mode
+    GtkWidget* modeLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(modeLabel), "<b>Display Mode</b>");
+    gtk_widget_set_halign(modeLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(modeLabel, 15);
+    gtk_box_append(GTK_BOX(box), modeLabel);
+
+    createCheckbox("Compact Mode (reduces spacing, smaller UI)", &uiVisibility.compactMode);
+
+    return scroll;
+}
+
+// Advanced Tab - Granular controls
+GtkWidget* BrayaCustomization::createAdvancedTab() {
+    GtkWidget* scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+
+    GtkWidget* grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 12);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 15);
+    gtk_widget_set_margin_start(grid, 20);
+    gtk_widget_set_margin_end(grid, 20);
+    gtk_widget_set_margin_top(grid, 20);
+    gtk_widget_set_margin_bottom(grid, 20);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), grid);
+
+    int row = 0;
+
+    // Header
+    GtkWidget* header = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(header), "<b>⚙️ Advanced Layout Controls</b>");
+    gtk_widget_set_halign(header, GTK_ALIGN_START);
+    gtk_grid_attach(GTK_GRID(grid), header, 0, row++, 2, 1);
+
+    auto createSpinner = [&](const char* label, int* value, int min, int max) {
+        GtkWidget* lbl = gtk_label_new(label);
+        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+        gtk_grid_attach(GTK_GRID(grid), lbl, 0, row, 1, 1);
+
+        GtkWidget* spin = gtk_spin_button_new_with_range(min, max, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), *value);
+        g_object_set_data(G_OBJECT(spin), "value-ptr", value);
+        g_signal_connect(spin, "value-changed", G_CALLBACK(+[](GtkSpinButton* btn, gpointer) {
+            int* val = (int*)g_object_get_data(G_OBJECT(btn), "value-ptr");
+            *val = gtk_spin_button_get_value_as_int(btn);
+        }), nullptr);
+        gtk_grid_attach(GTK_GRID(grid), spin, 1, row++, 1, 1);
+    };
+
+    auto createCheckbox = [&](const char* label, bool* value) {
+        GtkWidget* check = gtk_check_button_new_with_label(label);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(check), *value);
+        g_object_set_data(G_OBJECT(check), "value-ptr", value);
+        g_signal_connect(check, "toggled", G_CALLBACK(+[](GtkCheckButton* btn, gpointer) {
+            bool* val = (bool*)g_object_get_data(G_OBJECT(btn), "value-ptr");
+            *val = gtk_check_button_get_active(btn);
+        }), nullptr);
+        gtk_grid_attach(GTK_GRID(grid), check, 0, row++, 2, 1);
+    };
+
+    // Tab Settings
+    GtkWidget* tabLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(tabLabel), "<b>Tab Appearance</b>");
+    gtk_widget_set_halign(tabLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(tabLabel, 15);
+    gtk_grid_attach(GTK_GRID(grid), tabLabel, 0, row++, 2, 1);
+
+    createSpinner("Tab Minimum Width (px):", &advancedLayout.tabMinWidth, 100, 400);
+    createSpinner("Tab Maximum Width (px):", &advancedLayout.tabMaxWidth, 150, 500);
+    createSpinner("Tab Height (px):", &advancedLayout.tabHeight, 30, 80);
+    createSpinner("Tab Spacing (px):", &advancedLayout.tabSpacing, 0, 20);
+    createCheckbox("Show Tab Close Buttons", &advancedLayout.showTabCloseButton);
+    createCheckbox("Show Tab Icons/Favicons", &advancedLayout.showTabIcons);
+    createCheckbox("Animate Tab Transitions", &advancedLayout.animateTabs);
+
+    // URL Bar Settings
+    GtkWidget* urlLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(urlLabel), "<b>URL Bar</b>");
+    gtk_widget_set_halign(urlLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(urlLabel, 15);
+    gtk_grid_attach(GTK_GRID(grid), urlLabel, 0, row++, 2, 1);
+
+    createSpinner("URL Bar Height (px):", &advancedLayout.urlBarHeight, 30, 60);
+    createSpinner("URL Bar Border Radius (px):", &advancedLayout.urlBarBorderRadius, 0, 30);
+    createCheckbox("Show Protocol (https://)", &advancedLayout.urlBarShowProtocol);
+    createCheckbox("Center URL Text", &advancedLayout.urlBarCenterText);
+
+    // Sidebar Settings
+    GtkWidget* sidebarLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(sidebarLabel), "<b>Sidebar</b>");
+    gtk_widget_set_halign(sidebarLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(sidebarLabel, 15);
+    gtk_grid_attach(GTK_GRID(grid), sidebarLabel, 0, row++, 2, 1);
+
+    createSpinner("Sidebar Width (px):", &advancedLayout.sidebarWidth, 40, 100);
+    createCheckbox("Auto-hide Sidebar", &advancedLayout.sidebarAutoHide);
+
+    // Global Spacing
+    GtkWidget* spacingLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(spacingLabel), "<b>Spacing</b>");
+    gtk_widget_set_halign(spacingLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(spacingLabel, 15);
+    gtk_grid_attach(GTK_GRID(grid), spacingLabel, 0, row++, 2, 1);
+
+    createSpinner("Global Spacing (px):", &advancedLayout.globalSpacing, 0, 20);
+    createSpinner("Button Spacing (px):", &advancedLayout.buttonSpacing, 0, 20);
+
+    return scroll;
 }

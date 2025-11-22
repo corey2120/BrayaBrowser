@@ -766,6 +766,45 @@ void BrayaWindow::loadThemeCSS(const std::string& themePath) {
     );
     
     std::cout << "✓ Loaded theme: " << themePath << std::endl;
+
+    // Load userChrome.css (Zen-style)
+    loadUserChrome();
+}
+
+// Zen Browser-style userChrome.css support
+void BrayaWindow::loadUserChrome() {
+    std::string userChromePath = std::string(g_get_home_dir()) +
+        "/.config/braya-browser/chrome/userChrome.css";
+
+    // Check if userChrome.css exists
+    if (!g_file_test(userChromePath.c_str(), G_FILE_TEST_EXISTS)) {
+        std::cout << "ℹ️  No userChrome.css found (create one in ~/.config/braya-browser/chrome/)" << std::endl;
+        return;
+    }
+
+    // Load userChrome.css
+    GtkCssProvider* userChromeProvider = gtk_css_provider_new();
+    GFile* file = g_file_new_for_path(userChromePath.c_str());
+
+    GError* error = nullptr;
+    gtk_css_provider_load_from_file(userChromeProvider, file);
+    g_object_unref(file);
+
+    if (error) {
+        std::cerr << "❌ Error loading userChrome.css: " << error->message << std::endl;
+        g_error_free(error);
+        return;
+    }
+
+    // Apply with highest priority (like Zen Browser)
+    GdkDisplay* display = gdk_display_get_default();
+    gtk_style_context_add_provider_for_display(
+        display,
+        GTK_STYLE_PROVIDER(userChromeProvider),
+        GTK_STYLE_PROVIDER_PRIORITY_USER  // Higher than theme priority
+    );
+
+    std::cout << "✅ Loaded userChrome.css (Zen-style customization)" << std::endl;
 }
 
 void BrayaWindow::applyTheme(int themeId) {
@@ -1037,24 +1076,37 @@ void BrayaWindow::createNavbar() {
     gtk_box_append(GTK_BOX(leftBox), homeBtn);
 
     gtk_header_bar_pack_start(GTK_HEADER_BAR(headerbar), leftBox);
-    
-    // Center: URL entry COMPACT - like Firefox
+
+    // Center: URL bar with security indicator - EXPANDED for v1.0.9
+    urlBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_widget_add_css_class(urlBox, "url-box");
+    gtk_widget_set_hexpand(urlBox, TRUE);
+    gtk_widget_set_size_request(urlBox, 900, -1);
+
+    // Security indicator (🔒 for HTTPS, 🔓 for HTTP)
+    securityIcon = gtk_image_new_from_icon_name("security-medium-symbolic");
+    gtk_widget_set_tooltip_text(securityIcon, "Connection security");
+    gtk_widget_add_css_class(securityIcon, "security-icon");
+    gtk_box_append(GTK_BOX(urlBox), securityIcon);
+
+    // URL entry
     urlEntry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(urlEntry), "Search or enter address");
     gtk_widget_add_css_class(urlEntry, "url-entry");
     gtk_widget_set_hexpand(urlEntry, TRUE);
-    gtk_widget_set_size_request(urlEntry, 600, -1);  // Minimum width to extend more
     g_signal_connect(urlEntry, "activate", G_CALLBACK(onUrlActivate), this);
-    
+
     // Select all text when URL entry gets focus
     GtkEventController* focus_controller = gtk_event_controller_focus_new();
-    g_signal_connect_swapped(focus_controller, "enter", 
+    g_signal_connect_swapped(focus_controller, "enter",
         G_CALLBACK(+[](GtkWidget* entry) {
             gtk_editable_select_region(GTK_EDITABLE(entry), 0, -1);
         }), urlEntry);
     gtk_widget_add_controller(urlEntry, focus_controller);
-    
-    gtk_header_bar_set_title_widget(GTK_HEADER_BAR(headerbar), urlEntry);
+
+    gtk_box_append(GTK_BOX(urlBox), urlEntry);
+
+    gtk_header_bar_set_title_widget(GTK_HEADER_BAR(headerbar), urlBox);
     
     // Right side box for all right controls
     GtkWidget* rightBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -2312,12 +2364,39 @@ void BrayaWindow::navigateTo(const char* url) {
 }
 
 void BrayaWindow::updateUI() {
-    if (activeTabIndex >= 0) {
+    if (activeTabIndex >= 0 && activeTabIndex < (int)tabs.size()) {
         BrayaTab* tab = tabs[activeTabIndex].get();
         WebKitWebView* webView = tab->getWebView();
-        
+
         gtk_widget_set_sensitive(backBtn, webkit_web_view_can_go_back(webView));
         gtk_widget_set_sensitive(forwardBtn, webkit_web_view_can_go_forward(webView));
+
+        // Update security indicator
+        updateSecurityIndicator(tab->getUrl());
+    }
+}
+
+void BrayaWindow::updateSecurityIndicator(const std::string& url) {
+    if (!securityIcon) return;
+
+    if (url.find("https://") == 0) {
+        // Secure HTTPS connection
+        gtk_image_set_from_icon_name(GTK_IMAGE(securityIcon), "channel-secure-symbolic");
+        gtk_widget_set_tooltip_text(securityIcon, "Connection is secure (HTTPS)");
+        gtk_widget_remove_css_class(securityIcon, "insecure");
+        gtk_widget_add_css_class(securityIcon, "secure");
+    } else if (url.find("http://") == 0) {
+        // Insecure HTTP connection
+        gtk_image_set_from_icon_name(GTK_IMAGE(securityIcon), "channel-insecure-symbolic");
+        gtk_widget_set_tooltip_text(securityIcon, "Connection is not secure (HTTP)");
+        gtk_widget_remove_css_class(securityIcon, "secure");
+        gtk_widget_add_css_class(securityIcon, "insecure");
+    } else {
+        // Local or special pages (about:, file:, etc.)
+        gtk_image_set_from_icon_name(GTK_IMAGE(securityIcon), "security-medium-symbolic");
+        gtk_widget_set_tooltip_text(securityIcon, "Local or internal page");
+        gtk_widget_remove_css_class(securityIcon, "secure");
+        gtk_widget_remove_css_class(securityIcon, "insecure");
     }
 }
 
@@ -2344,7 +2423,7 @@ void BrayaWindow::hideFindBar() {
     gtk_label_set_text(GTK_LABEL(findMatchLabel), "");
     
     // Clear find in current tab
-    if (activeTabIndex >= 0) {
+    if (activeTabIndex >= 0 && activeTabIndex < (int)tabs.size()) {
         BrayaTab* tab = tabs[activeTabIndex].get();
         WebKitFindController* findController = webkit_web_view_get_find_controller(tab->getWebView());
         webkit_find_controller_search_finish(findController);
@@ -2352,16 +2431,16 @@ void BrayaWindow::hideFindBar() {
 }
 
 void BrayaWindow::findNext() {
-    if (activeTabIndex < 0) return;
-    
+    if (activeTabIndex < 0 || activeTabIndex >= (int)tabs.size()) return;
+
     BrayaTab* tab = tabs[activeTabIndex].get();
     WebKitFindController* findController = webkit_web_view_get_find_controller(tab->getWebView());
     webkit_find_controller_search_next(findController);
 }
 
 void BrayaWindow::findPrevious() {
-    if (activeTabIndex < 0) return;
-    
+    if (activeTabIndex < 0 || activeTabIndex >= (int)tabs.size()) return;
+
     BrayaTab* tab = tabs[activeTabIndex].get();
     WebKitFindController* findController = webkit_web_view_get_find_controller(tab->getWebView());
     webkit_find_controller_search_previous(findController);
@@ -2473,10 +2552,8 @@ void BrayaWindow::onReloadClicked(GtkWidget* widget, gpointer data) {
     if (!window || window->activeTabIndex < 0 || window->activeTabIndex >= (int)window->tabs.size()) {
         return;
     }
-    if (window->activeTabIndex >= 0) {
-        BrayaTab* tab = window->tabs[window->activeTabIndex].get();
-        webkit_web_view_reload(tab->getWebView());
-    }
+    BrayaTab* tab = window->tabs[window->activeTabIndex].get();
+    webkit_web_view_reload(tab->getWebView());
 }
 
 void BrayaWindow::onHomeClicked(GtkWidget* widget, gpointer data) {
@@ -2621,7 +2698,7 @@ void BrayaWindow::onFindCloseClicked(GtkWidget* widget, gpointer data) {
 
 void BrayaWindow::onFindEntryChanged(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
-    if (window->activeTabIndex < 0) return;
+    if (window->activeTabIndex < 0 || window->activeTabIndex >= (int)window->tabs.size()) return;
     
     const char* searchText = gtk_editable_get_text(GTK_EDITABLE(widget));
     if (strlen(searchText) == 0) {
@@ -2652,7 +2729,7 @@ void BrayaWindow::onFindEntryChanged(GtkWidget* widget, gpointer data) {
 
 void BrayaWindow::onDevToolsClicked(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
-    if (window->activeTabIndex >= 0) {
+    if (window->activeTabIndex >= 0 && window->activeTabIndex < (int)window->tabs.size()) {
         BrayaTab* tab = window->tabs[window->activeTabIndex].get();
         WebKitWebInspector* inspector = webkit_web_view_get_inspector(tab->getWebView());
         webkit_web_inspector_show(inspector);
@@ -2690,7 +2767,7 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
             window->reopenClosedTab();
             return TRUE;
         } else if (keyval == GDK_KEY_w) {
-            if (window->tabs.size() > 1 && window->activeTabIndex >= 0) {
+            if (window->tabs.size() > 1 && window->activeTabIndex >= 0 && window->activeTabIndex < (int)window->tabs.size()) {
                 window->closeTab(window->activeTabIndex);
             }
             return TRUE;
@@ -2755,7 +2832,7 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
     }
     
     if (keyval == GDK_KEY_F12) {
-        if (window->activeTabIndex >= 0) {
+        if (window->activeTabIndex >= 0 && window->activeTabIndex < (int)window->tabs.size()) {
             BrayaTab* tab = window->tabs[window->activeTabIndex].get();
             WebKitWebInspector* inspector = webkit_web_view_get_inspector(tab->getWebView());
             webkit_web_inspector_show(inspector);
