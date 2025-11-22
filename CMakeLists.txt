@@ -48,6 +48,7 @@ set(SOURCES
     src/extensions/BrayaExtensionAPI.cpp
     src/extensions/ExtensionInstaller.cpp
     src/adblocker/BrayaAdBlocker.cpp
+    src/BrayaBookmarkIO.cpp
 )
 
 # Web extension source files (separate shared library)

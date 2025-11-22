@@ -161,8 +161,8 @@ std::vector<ImportedBookmark> BrayaBookmarkIO::importFromHTML(const std::string&
     std::string html = buffer.str();
     
     // Simple regex parsing (production would use proper HTML parser)
-    std::regex linkRegex(R"(<A\s+HREF="([^"]+)"[^>]*>([^<]+)</A>)");
-    std::regex folderRegex(R"(<H3[^>]*>([^<]+)</H3>)");
+    std::regex linkRegex("<A\\s+HREF=\"([^\"]+)\"[^>]*>([^<]+)</A>");
+    std::regex folderRegex("<H3[^>]*>([^<]+)</H3>");
     
     std::smatch match;
     std::string::const_iterator searchStart(html.cbegin());
