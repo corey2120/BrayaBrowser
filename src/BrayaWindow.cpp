@@ -827,16 +827,15 @@ void BrayaWindow::updateAdBlockerShield() {
     if (!adBlockerShieldBtn || !GTK_IS_WIDGET(adBlockerShieldBtn)) return;
     if (!adBlocker) return;
 
-    // Update icon color based on enabled state
-    GtkWidget* icon = gtk_button_get_child(GTK_BUTTON(adBlockerShieldBtn));
-    if (icon && GTK_IS_IMAGE(icon)) {
-        if (adBlocker->isEnabled()) {
-            gtk_widget_add_css_class(icon, "accent");  // Blue
-            gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad Blocker: Enabled");
-        } else {
-            gtk_widget_remove_css_class(icon, "accent");  // Grey
-            gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad Blocker: Disabled");
-        }
+    // Update button color based on enabled state
+    if (adBlocker->isEnabled()) {
+        gtk_widget_add_css_class(adBlockerShieldBtn, "accent");  // Blue
+        gtk_widget_remove_css_class(adBlockerShieldBtn, "dim-label");
+        gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad Blocker: Enabled");
+    } else {
+        gtk_widget_remove_css_class(adBlockerShieldBtn, "accent");
+        gtk_widget_add_css_class(adBlockerShieldBtn, "dim-label");  // Grey
+        gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad Blocker: Disabled");
     }
 }
 
@@ -1104,15 +1103,14 @@ void BrayaWindow::createNavbar() {
     gtk_box_append(GTK_BOX(rightBox), extensionButtonsBox);
 
     // Ad-Blocker Shield button (blue when enabled, grey when disabled)
-    adBlockerShieldBtn = gtk_button_new();
-    GtkWidget* shieldIcon = gtk_image_new_from_icon_name("security-high-symbolic");
-    gtk_image_set_pixel_size(GTK_IMAGE(shieldIcon), 16);
-    if (adBlocker && adBlocker->isEnabled()) {
-        gtk_widget_add_css_class(shieldIcon, "accent");  // Blue when enabled
-    }
-    gtk_button_set_child(GTK_BUTTON(adBlockerShieldBtn), shieldIcon);
+    adBlockerShieldBtn = gtk_button_new_with_label("🛡️");
     gtk_widget_set_tooltip_text(adBlockerShieldBtn, adBlocker && adBlocker->isEnabled() ? "Ad Blocker: Enabled" : "Ad Blocker: Disabled");
     gtk_widget_add_css_class(adBlockerShieldBtn, "flat");
+    if (adBlocker && adBlocker->isEnabled()) {
+        gtk_widget_add_css_class(adBlockerShieldBtn, "accent");  // Blue when enabled
+    } else {
+        gtk_widget_add_css_class(adBlockerShieldBtn, "dim-label");  // Grey when disabled
+    }
     g_signal_connect(adBlockerShieldBtn, "clicked", G_CALLBACK(onAdBlockerShieldClicked), this);
     gtk_box_append(GTK_BOX(rightBox), adBlockerShieldBtn);
 
