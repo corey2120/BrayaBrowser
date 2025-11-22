@@ -2448,22 +2448,31 @@ void BrayaWindow::onUrlActivate(GtkWidget* widget, gpointer data) {
 
 void BrayaWindow::onBackClicked(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
-    if (window->activeTabIndex >= 0) {
-        BrayaTab* tab = window->tabs[window->activeTabIndex].get();
+    if (!window || window->activeTabIndex < 0 || window->activeTabIndex >= (int)window->tabs.size()) {
+        return;
+    }
+    BrayaTab* tab = window->tabs[window->activeTabIndex].get();
+    if (tab && tab->getWebView() && WEBKIT_IS_WEB_VIEW(tab->getWebView())) {
         webkit_web_view_go_back(tab->getWebView());
     }
 }
 
 void BrayaWindow::onForwardClicked(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
-    if (window->activeTabIndex >= 0) {
-        BrayaTab* tab = window->tabs[window->activeTabIndex].get();
+    if (!window || window->activeTabIndex < 0 || window->activeTabIndex >= (int)window->tabs.size()) {
+        return;
+    }
+    BrayaTab* tab = window->tabs[window->activeTabIndex].get();
+    if (tab && tab->getWebView() && WEBKIT_IS_WEB_VIEW(tab->getWebView())) {
         webkit_web_view_go_forward(tab->getWebView());
     }
 }
 
 void BrayaWindow::onReloadClicked(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    if (!window || window->activeTabIndex < 0 || window->activeTabIndex >= (int)window->tabs.size()) {
+        return;
+    }
     if (window->activeTabIndex >= 0) {
         BrayaTab* tab = window->tabs[window->activeTabIndex].get();
         webkit_web_view_reload(tab->getWebView());
@@ -2472,6 +2481,9 @@ void BrayaWindow::onReloadClicked(GtkWidget* widget, gpointer data) {
 
 void BrayaWindow::onHomeClicked(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
+    if (!window || !window->settings) {
+        return;
+    }
     std::string homePage = window->settings->getHomePage();
     window->navigateTo(homePage.c_str());
 }
