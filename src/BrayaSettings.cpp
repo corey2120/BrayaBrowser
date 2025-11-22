@@ -2086,16 +2086,7 @@ GtkWidget* BrayaSettings::createAdBlockerTab() {
     g_signal_connect(blockNSFWCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
     gtk_grid_attach(GTK_GRID(featuresGrid), blockNSFWCheck, 1, 3, 1, 1);
 
-    // Statistics
-    GtkWidget* statsLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(statsLabel), "<span weight='bold'>Statistics</span>");
-    gtk_widget_set_halign(statsLabel, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(statsLabel, 20);
-    gtk_box_append(GTK_BOX(box), statsLabel);
-
-    this->statsLabel = gtk_label_new("Total Blocked: 0\nBlocked Today: 0");
-    gtk_widget_set_halign(this->statsLabel, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(box), this->statsLabel);
+    // Remove statistics section - not needed in v1.0.8
 
     // Whitelist Section
     GtkWidget* whitelistLabel = gtk_label_new(nullptr);
@@ -2138,17 +2129,18 @@ GtkWidget* BrayaSettings::createAdBlockerTab() {
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(whitelistScrolled), whitelistBox);
     g_object_set_data(G_OBJECT(box), "whitelist_box", whitelistBox);
 
-    // Filter Lists Section
-    GtkWidget* filterListsLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(filterListsLabel), "<span weight='bold'>Filter Lists</span>");
-    gtk_widget_set_halign(filterListsLabel, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(filterListsLabel, 20);
-    gtk_box_append(GTK_BOX(box), filterListsLabel);
-
-    GtkWidget* filterListsDesc = gtk_label_new("Enable or disable filter lists");
-    gtk_widget_add_css_class(filterListsDesc, "dim-label");
-    gtk_widget_set_halign(filterListsDesc, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(box), filterListsDesc);
+    // Info section
+    GtkWidget* infoLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(infoLabel), "<span weight='bold'>About</span>");
+    gtk_widget_set_halign(infoLabel, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(infoLabel, 20);
+    gtk_box_append(GTK_BOX(box), infoLabel);
+    
+    GtkWidget* infoText = gtk_label_new("The ad-blocker uses WebKit's content filtering to block ads and trackers.\nCustom filter lists can be added in future versions.");
+    gtk_label_set_wrap(GTK_LABEL(infoText), TRUE);
+    gtk_widget_add_css_class(infoText, "dim-label");
+    gtk_widget_set_halign(infoText, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(box), infoText);
 
     // Filter lists grid
     GtkWidget* filterListsBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
