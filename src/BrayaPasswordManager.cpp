@@ -1381,6 +1381,7 @@ void BrayaPasswordManager::armIdleConcealTimer(GtkWindow* parent) {
             }
             if (ctx->window) {
                 g_object_unref(ctx->window);
+                ctx->window = nullptr;
             }
             delete ctx;
         }

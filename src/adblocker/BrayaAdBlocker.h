@@ -115,6 +115,8 @@ private:
     std::vector<std::string> m_compiledRules;  // Compiled filter rules
 
     WebKitUserContentFilter* m_contentFilter;
+    WebKitUserContentFilterStore* m_filterStore;
+    bool m_filterCompiled;
     std::string m_settingsPath;
 
     // Helper methods

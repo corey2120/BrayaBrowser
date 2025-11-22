@@ -175,8 +175,11 @@ static void on_extension_button_clicked(GtkButton* button, gpointer data) {
 
         // Add message handler for popup-background IPC
         PopupMessageData* popupData = new PopupMessageData{window, popupView, extensionId};
-        g_signal_connect(popupContentManager, "script-message-received::extensionMessage",
-                         G_CALLBACK(on_popup_message_received), popupData);
+        g_signal_connect_data(popupContentManager, "script-message-received::extensionMessage",
+                         G_CALLBACK(on_popup_message_received), popupData,
+                         [](gpointer data, GClosure*) {
+                             delete static_cast<PopupMessageData*>(data);
+                         }, GConnectFlags(0));
 
         webkit_user_content_manager_register_script_message_handler(popupContentManager, "extensionMessage", nullptr);
         WebKitUserScript* userScript = webkit_user_script_new(
@@ -1293,7 +1296,7 @@ void BrayaWindow::createTab(const char* url) {
                 gtk_box_append(GTK_BOX(window->tabsBox), tabBtn);
 
                 // Switch to the new tab
-                window->activeTabIndex = window->tabs.size();
+                window->activeTabIndex = window->tabs.size() - 1;
                 gtk_stack_set_visible_child_name(GTK_STACK(window->tabStack), name);
                 window->updateUI();
 

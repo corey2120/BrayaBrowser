@@ -8,9 +8,11 @@
 #include <ctime>
 
 BrayaAdBlocker::BrayaAdBlocker()
-    : m_enabled(false)
+    : m_enabled(true)
     , m_securityLevel(SecurityLevel::STANDARD)
     , m_contentFilter(nullptr)
+    , m_filterStore(nullptr)
+    , m_filterCompiled(false)
 {
     // Initialize with default settings
     m_features.block_ads = true;
@@ -27,6 +29,9 @@ BrayaAdBlocker::~BrayaAdBlocker() {
     if (m_contentFilter) {
         webkit_user_content_filter_unref(m_contentFilter);
     }
+    if (m_filterStore) {
+        g_object_unref(m_filterStore);
+    }
 }
 
 bool BrayaAdBlocker::initialize() {
@@ -40,10 +45,30 @@ bool BrayaAdBlocker::initialize() {
         m_settingsPath = "./adblock-settings.json";
     }
 
+    // Create filter store directory
+    std::string filterStorePath;
+    if (home) {
+        filterStorePath = std::string(home) + "/.cache/braya-browser/content-filters";
+    } else {
+        filterStorePath = "./content-filters";
+    }
+
+    // Create directory if it doesn't exist
+    g_mkdir_with_parents(filterStorePath.c_str(), 0755);
+
+    // Create WebKit content filter store
+    m_filterStore = webkit_user_content_filter_store_new(filterStorePath.c_str());
+    std::cout << "  ✓ Created filter store at: " << filterStorePath << std::endl;
+
     // Try to load existing settings
     if (!loadSettings(m_settingsPath)) {
         std::cout << "  → No existing settings, using defaults" << std::endl;
         loadDefaultFilterLists();
+    }
+
+    // Compile rules on initialization
+    if (m_enabled) {
+        compileRules();
     }
 
     std::cout << "✓ Ad-Blocker initialized" << std::endl;
@@ -276,18 +301,18 @@ void BrayaAdBlocker::compileRules() {
 
     m_compiledRules.clear();
 
-    // Add basic blocking rules based on features
+    // Add specific domain targeting (better than broad patterns)
     if (m_features.block_ads) {
-        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*ads.*"},"action":{"type":"block"}})");
-        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*doubleclick.*"},"action":{"type":"block"}})");
-        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*googlesyndication.*"},"action":{"type":"block"}})");
-        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*adservice.*"},"action":{"type":"block"}})");
+        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*doubleclick\\.net.*"},"action":{"type":"block"}})");
+        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*googlesyndication\\.com.*"},"action":{"type":"block"}})");
+        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*googleadservices\\.com.*"},"action":{"type":"block"}})");
+        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*pagead2\\.googlesyndication\\.com.*"},"action":{"type":"block"}})");
+        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*adnxs\\.com.*"},"action":{"type":"block"}})");
     }
 
     if (m_features.block_trackers) {
-        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*analytics.*"},"action":{"type":"block"}})");
+        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*google-analytics\\.com.*"},"action":{"type":"block"}})");
         m_compiledRules.push_back(R"({"trigger":{"url-filter":".*tracking.*"},"action":{"type":"block"}})");
-        m_compiledRules.push_back(R"({"trigger":{"url-filter":".*tracker.*"},"action":{"type":"block"}})");
     }
 
     if (m_features.block_cryptominers) {
@@ -300,7 +325,61 @@ void BrayaAdBlocker::compileRules() {
         m_compiledRules.push_back(compileRuleToJSON(rule));
     }
 
-    std::cout << "  ✓ Compiled " << m_compiledRules.size() << " blocking rules" << std::endl;
+    std::cout << "  ✓ Prepared " << m_compiledRules.size() << " blocking rules" << std::endl;
+
+    // Now compile with WebKit filter store (async)
+    if (!m_filterStore) {
+        std::cerr << "  ❌ Filter store not initialized!" << std::endl;
+        return;
+    }
+
+    // Convert rules to JSON array
+    std::string rulesJSON = "[";
+    for (size_t i = 0; i < m_compiledRules.size(); i++) {
+        rulesJSON += m_compiledRules[i];
+        if (i < m_compiledRules.size() - 1) rulesJSON += ",";
+    }
+    rulesJSON += "]";
+
+    GBytes* rulesBytes = g_bytes_new(rulesJSON.c_str(), rulesJSON.length());
+
+    std::cout << "  🔄 Compiling filter (async)..." << std::endl;
+
+    webkit_user_content_filter_store_save(
+        m_filterStore,
+        "braya-adblock-filter",
+        rulesBytes,
+        nullptr,
+        [](GObject* source, GAsyncResult* result, gpointer user_data) {
+            BrayaAdBlocker* self = static_cast<BrayaAdBlocker*>(user_data);
+            GError* error = nullptr;
+
+            WebKitUserContentFilter* filter =
+                webkit_user_content_filter_store_save_finish(
+                    WEBKIT_USER_CONTENT_FILTER_STORE(source),
+                    result,
+                    &error
+                );
+
+            if (error) {
+                std::cerr << "  ❌ Filter compilation failed: " << error->message << std::endl;
+                g_error_free(error);
+                return;
+            }
+
+            if (filter) {
+                std::cout << "  ✓ Filter compiled successfully!" << std::endl;
+                if (self->m_contentFilter) {
+                    webkit_user_content_filter_unref(self->m_contentFilter);
+                }
+                self->m_contentFilter = filter;
+                self->m_filterCompiled = true;
+            }
+        },
+        this
+    );
+
+    g_bytes_unref(rulesBytes);
 }
 
 std::string BrayaAdBlocker::compileRuleToJSON(const std::string& rule) {
@@ -462,27 +541,59 @@ bool BrayaAdBlocker::saveSettings(const std::string& path) {
 }
 
 void BrayaAdBlocker::applyToContentManager(WebKitUserContentManager* manager) {
-    if (!m_enabled || !manager) return;
+    if (!m_enabled || !manager || !m_filterStore) return;
 
     std::cout << "  🛡️  Applying ad-blocker to content manager..." << std::endl;
 
-    // Compile rules if not already done
-    if (m_compiledRules.empty()) {
-        compileRules();
-    }
+    // Take reference to keep manager alive during async operation
+    g_object_ref(manager);
 
-    // Build JSON array of rules
-    std::string rulesJSON = "[";
-    for (size_t i = 0; i < m_compiledRules.size(); i++) {
-        if (i > 0) rulesJSON += ",";
-        rulesJSON += m_compiledRules[i];
-    }
-    rulesJSON += "]";
+    // Load the compiled filter from cache
+    webkit_user_content_filter_store_load(
+        m_filterStore,
+        "braya-adblock-filter",
+        nullptr,
+        [](GObject* source, GAsyncResult* result, gpointer user_data) {
+            auto* data = static_cast<std::pair<BrayaAdBlocker*, WebKitUserContentManager*>*>(user_data);
+            BrayaAdBlocker* self = data->first;
+            WebKitUserContentManager* mgr = data->second;
 
-    // TODO: Create WebKitUserContentFilter from rules
-    // This requires webkit2gtk-4.1 API
-    // For now, we'll log that we're ready to apply
-    std::cout << "  ✓ Ready to apply " << m_compiledRules.size() << " blocking rules" << std::endl;
+            GError* error = nullptr;
+            WebKitUserContentFilter* filter =
+                webkit_user_content_filter_store_load_finish(
+                    WEBKIT_USER_CONTENT_FILTER_STORE(source),
+                    result,
+                    &error
+                );
+
+            if (error) {
+                std::cerr << "  ❌ Failed to load filter: " << error->message << std::endl;
+                g_error_free(error);
+                g_object_unref(mgr);
+                delete data;
+                return;
+            }
+
+            if (filter) {
+                std::cout << "  ✓ Loaded cached filter!" << std::endl;
+
+                // Store and apply the filter
+                if (self->m_contentFilter) {
+                    webkit_user_content_filter_unref(self->m_contentFilter);
+                }
+                self->m_contentFilter = filter;
+                self->m_filterCompiled = true;
+
+                // Apply to content manager
+                webkit_user_content_manager_add_filter(mgr, filter);
+                std::cout << "  ✅ Ad-blocker filter applied!" << std::endl;
+            }
+
+            g_object_unref(mgr);  // Release our reference
+            delete data;
+        },
+        new std::pair<BrayaAdBlocker*, WebKitUserContentManager*>(this, manager)
+    );
 }
 
 bool BrayaAdBlocker::loadFilterList(const std::string& path) {

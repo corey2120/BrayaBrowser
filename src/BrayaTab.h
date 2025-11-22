@@ -95,6 +95,7 @@ private:
     GtkWidget* autofillPopover = nullptr;
     GtkWidget* autofillToast = nullptr;
     guint toastTimerSource = 0;
+    guint deferredSetupSource = 0;  // Source ID for deferred password/extension setup
 
     void setupPasswordManager();
     void injectPasswordScript();

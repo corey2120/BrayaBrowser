@@ -16,13 +16,14 @@ BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, B
     : id(id), url(url ? url : "about:braya"), title("New Tab"), isLoading(false),
       favicon(nullptr), tabButton(nullptr), passwordManager(passwordMgr), extensionManager(extMgr),
       userContentManager(nullptr), pinned(false), muted(false), readerMode(false),
-      suspended(false), cachedFavicon(nullptr) {
+      suspended(false), cachedFavicon(nullptr), deferredSetupSource(0) {
 
-    // Create WebView first
-    webView = WEBKIT_WEB_VIEW(webkit_web_view_new());
-
-    // Get the UserContentManager from the webview
-    userContentManager = webkit_web_view_get_user_content_manager(webView);
+    // Create per-tab UserContentManager to avoid handler name conflicts
+    // Each tab needs its own manager to register message handlers independently
+    userContentManager = webkit_user_content_manager_new();
+    webView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                                            "user-content-manager", userContentManager,
+                                            nullptr));
     
     // Enable developer tools
     WebKitSettings* settings = webkit_web_view_get_settings(webView);
@@ -33,13 +34,37 @@ BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, B
     scrolledWindow = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolledWindow), GTK_WIDGET(webView));
     
-    // Setup password manager
-    if (passwordManager) {
-        setupPasswordManager();
-    }
+    // Defer password manager and extension setup for faster tab creation
+    if (passwordManager || extensionManager) {
+        struct DeferredSetupData {
+            BrayaTab* tab;
+            BrayaPasswordManager* passwordMgr;
+            BrayaExtensionManager* extMgr;
+            guint* sourceId;
+        };
+        DeferredSetupData* data = new DeferredSetupData{
+            this, passwordManager, extensionManager, &deferredSetupSource
+        };
 
-    // Setup extension detector for automatic installation
-    setupExtensionDetector();
+        deferredSetupSource = g_idle_add([](gpointer user_data) -> gboolean {
+            auto* data = static_cast<DeferredSetupData*>(user_data);
+            
+            if (data->sourceId) {
+                *data->sourceId = 0;
+            }
+            
+            if (data->passwordMgr && data->tab) {
+                data->tab->setupPasswordManager();
+            }
+            
+            if (data->extMgr && data->tab) {
+                data->tab->setupExtensionDetector();
+            }
+            
+            delete data;
+            return G_SOURCE_REMOVE;
+        }, data);
+    }
 
     // Connect signals
     g_signal_connect(webView, "load-changed", G_CALLBACK(onLoadChanged), this);
@@ -64,6 +89,12 @@ BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, B
 }
 
 BrayaTab::~BrayaTab() {
+    // Cancel deferred setup if still pending
+    if (deferredSetupSource != 0) {
+        g_source_remove(deferredSetupSource);
+        deferredSetupSource = 0;
+    }
+    
     // Disconnect all signals before destruction
     if (webView && WEBKIT_IS_WEB_VIEW(webView)) {
         g_signal_handlers_disconnect_by_data(webView, this);
@@ -413,6 +444,11 @@ std::string BrayaTab::getResourcePath(const std::string& filename) {
 
 // Handle new window/popup requests
 GtkWidget* BrayaTab::onCreateNewWindow(WebKitWebView* webView, WebKitNavigationAction* navigation, gpointer userData) {
+    if (!userData) {
+        std::cerr << "❌ onCreateNewWindow: NULL userData" << std::endl;
+        return nullptr;
+    }
+    
     BrayaTab* tab = static_cast<BrayaTab*>(userData);
 
     std::cout << "🪟 New window/tab requested - " << std::flush;
