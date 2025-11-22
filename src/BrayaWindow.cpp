@@ -2560,6 +2560,27 @@ void BrayaWindow::onAdBlockerShieldClicked(GtkWidget* widget, gpointer data) {
     gtk_widget_set_halign(infoLabel, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(popoverBox), infoLabel);
     
+    // Separator
+    GtkWidget* separator2 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_append(GTK_BOX(popoverBox), separator2);
+    
+    // Settings button
+    GtkWidget* settingsBtn = gtk_button_new_with_label("Settings...");
+    gtk_widget_set_halign(settingsBtn, GTK_ALIGN_CENTER);
+    
+    // Store window reference for settings button
+    g_signal_connect_data(settingsBtn, "clicked",
+        G_CALLBACK(+[](GtkButton* button, gpointer userData) {
+            ToggleData* data = static_cast<ToggleData*>(userData);
+            gtk_popover_popdown(GTK_POPOVER(data->popover));
+            if (data->window->settings) {
+                data->window->settings->showTab(GTK_WINDOW(data->window->window), "adblocker");
+            }
+        }), toggleData,
+        nullptr, GConnectFlags(0));
+    
+    gtk_box_append(GTK_BOX(popoverBox), settingsBtn);
+    
     gtk_popover_set_child(GTK_POPOVER(popover), popoverBox);
     
     // Show popover
