@@ -827,20 +827,17 @@ void BrayaWindow::updateAdBlockerShield() {
     if (!adBlockerShieldBtn || !GTK_IS_WIDGET(adBlockerShieldBtn)) return;
     if (!adBlocker) return;
 
-    BlockingStats stats = adBlocker->getStats();
-    int totalBlocked = stats.total_blocked;
-
-    // Update button label
-    std::string label = "🛡️ " + std::to_string(totalBlocked);
-    gtk_button_set_label(GTK_BUTTON(adBlockerShieldBtn), label.c_str());
-
-    // Update tooltip
-    std::string tooltip = "Ad-Blocker (" + std::to_string(totalBlocked) + " blocked";
-    if (stats.blocked_today > 0) {
-        tooltip += ", " + std::to_string(stats.blocked_today) + " today";
+    // Update icon color based on enabled state
+    GtkWidget* icon = gtk_button_get_child(GTK_BUTTON(adBlockerShieldBtn));
+    if (icon && GTK_IS_IMAGE(icon)) {
+        if (adBlocker->isEnabled()) {
+            gtk_widget_add_css_class(icon, "accent");  // Blue
+            gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad Blocker: Enabled");
+        } else {
+            gtk_widget_remove_css_class(icon, "accent");  // Grey
+            gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad Blocker: Disabled");
+        }
     }
-    tooltip += ")";
-    gtk_widget_set_tooltip_text(adBlockerShieldBtn, tooltip.c_str());
 }
 
 void BrayaWindow::setupUI() {
@@ -1106,11 +1103,16 @@ void BrayaWindow::createNavbar() {
     gtk_widget_add_css_class(extensionButtonsBox, "extension-buttons");
     gtk_box_append(GTK_BOX(rightBox), extensionButtonsBox);
 
-    // Ad-Blocker Shield button
-    adBlockerShieldBtn = gtk_button_new_with_label("🛡️ 0");
-    gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad-Blocker (0 blocked)");
-    gtk_widget_add_css_class(adBlockerShieldBtn, "action-btn");
-    gtk_widget_add_css_class(adBlockerShieldBtn, "shield-btn");
+    // Ad-Blocker Shield button (blue when enabled, grey when disabled)
+    adBlockerShieldBtn = gtk_button_new();
+    GtkWidget* shieldIcon = gtk_image_new_from_icon_name("security-high-symbolic");
+    gtk_image_set_pixel_size(GTK_IMAGE(shieldIcon), 16);
+    if (adBlocker && adBlocker->isEnabled()) {
+        gtk_widget_add_css_class(shieldIcon, "accent");  // Blue when enabled
+    }
+    gtk_button_set_child(GTK_BUTTON(adBlockerShieldBtn), shieldIcon);
+    gtk_widget_set_tooltip_text(adBlockerShieldBtn, adBlocker && adBlocker->isEnabled() ? "Ad Blocker: Enabled" : "Ad Blocker: Disabled");
+    gtk_widget_add_css_class(adBlockerShieldBtn, "flat");
     g_signal_connect(adBlockerShieldBtn, "clicked", G_CALLBACK(onAdBlockerShieldClicked), this);
     gtk_box_append(GTK_BOX(rightBox), adBlockerShieldBtn);
 
@@ -2491,7 +2493,79 @@ void BrayaWindow::onSettingsClicked(GtkWidget* widget, gpointer data) {
 
 void BrayaWindow::onAdBlockerShieldClicked(GtkWidget* widget, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
-    window->settings->showTab(GTK_WINDOW(window->window), "adblocker");
+    
+    // Create popover
+    GtkWidget* popover = gtk_popover_new();
+    gtk_widget_set_parent(popover, widget);
+    
+    // Create popover content
+    GtkWidget* popoverBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(popoverBox, 12);
+    gtk_widget_set_margin_end(popoverBox, 12);
+    gtk_widget_set_margin_top(popoverBox, 12);
+    gtk_widget_set_margin_bottom(popoverBox, 12);
+    
+    // Title
+    GtkWidget* title = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(title), "<b>🛡️  Ad Blocker</b>");
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(popoverBox), title);
+    
+    // Separator
+    GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_append(GTK_BOX(popoverBox), separator);
+    
+    // Toggle row
+    GtkWidget* toggleRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    
+    GtkWidget* toggleLabel = gtk_label_new("Enable Ad Blocking");
+    gtk_widget_set_hexpand(toggleLabel, TRUE);
+    gtk_widget_set_halign(toggleLabel, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(toggleRow), toggleLabel);
+    
+    GtkWidget* toggleSwitch = gtk_switch_new();
+    gtk_switch_set_active(GTK_SWITCH(toggleSwitch), window->adBlocker && window->adBlocker->isEnabled());
+    
+    // Store references in a struct for the callback
+    struct ToggleData {
+        BrayaWindow* window;
+        GtkWidget* popover;
+    };
+    ToggleData* toggleData = new ToggleData{window, popover};
+    
+    g_signal_connect_data(toggleSwitch, "state-set",
+        G_CALLBACK(+[](GtkSwitch* switchWidget, gboolean state, gpointer userData) -> gboolean {
+            ToggleData* data = static_cast<ToggleData*>(userData);
+            if (data->window->adBlocker) {
+                if (state) {
+                    data->window->adBlocker->enable();
+                } else {
+                    data->window->adBlocker->disable();
+                }
+                // Update shield icon
+                data->window->updateAdBlockerShield();
+            }
+            return FALSE;
+        }), toggleData,
+        [](gpointer data, GClosure*) {
+            delete static_cast<ToggleData*>(data);
+        }, GConnectFlags(0));
+    
+    gtk_box_append(GTK_BOX(toggleRow), toggleSwitch);
+    gtk_box_append(GTK_BOX(popoverBox), toggleRow);
+    
+    // Info text
+    GtkWidget* infoLabel = gtk_label_new("Blocks ads and trackers on websites");
+    gtk_widget_add_css_class(infoLabel, "dim-label");
+    gtk_label_set_wrap(GTK_LABEL(infoLabel), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(infoLabel), 30);
+    gtk_widget_set_halign(infoLabel, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(popoverBox), infoLabel);
+    
+    gtk_popover_set_child(GTK_POPOVER(popover), popoverBox);
+    
+    // Show popover
+    gtk_popover_popup(GTK_POPOVER(popover));
 }
 
 void BrayaWindow::onDownloadsClicked(GtkWidget* widget, gpointer data) {
