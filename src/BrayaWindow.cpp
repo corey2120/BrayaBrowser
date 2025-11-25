@@ -386,6 +386,10 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     std::cout << "  Icon DB: " << iconDbDir << std::endl;
 
     WebKitWebContext* context = webkit_web_context_get_default();
+
+    // ⚡ PERFORMANCE: Optimize for smooth scrolling and responsiveness
+    webkit_web_context_set_cache_model(context, WEBKIT_CACHE_MODEL_WEB_BROWSER);
+
     extensionManager->initialize(context);
     settings->setWebContext(context);
 
@@ -685,12 +689,8 @@ BrayaWindow::~BrayaWindow() {
     // Save session before closing
     saveSession();
 
-    // Clean up favicon cache
-    for (auto& entry : faviconCache) {
-        if (entry.second) {
-            g_object_unref(entry.second);
-        }
-    }
+    // 🛡️ MEMORY FIX: GObjectPtr handles cleanup automatically
+    // No need to manually unref - destructors handle it
     faviconCache.clear();
 
     tabs.clear();
@@ -1491,6 +1491,15 @@ void BrayaWindow::createTab(const char* url) {
 
     auto showCloseBtn = +[](GtkEventControllerMotion* controller, double x, double y, gpointer data) {
         GtkWidget* tabBtn = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+
+        // 🛡️ CRASH FIX: Validate widget before accessing
+        if (!tabBtn || !GTK_IS_WIDGET(tabBtn)) return;
+
+        BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(tabBtn), "window"));
+
+        // 🛡️ CRASH FIX: Abort if tab is being destroyed
+        if (window && window->destroyingTabs.count(tabBtn) > 0) return;
+
         GtkWidget* closeBtn = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "close-button"));
 
         if (closeBtn && GTK_IS_WIDGET(closeBtn)) {
@@ -1501,6 +1510,15 @@ void BrayaWindow::createTab(const char* url) {
 
     auto hideCloseBtn = +[](GtkEventControllerMotion* controller, gpointer data) {
         GtkWidget* tabBtn = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+
+        // 🛡️ CRASH FIX: Validate widget before accessing
+        if (!tabBtn || !GTK_IS_WIDGET(tabBtn)) return;
+
+        BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(tabBtn), "window"));
+
+        // 🛡️ CRASH FIX: Abort if tab is being destroyed
+        if (window && window->destroyingTabs.count(tabBtn) > 0) return;
+
         GtkWidget* closeBtn = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "close-button"));
 
         if (closeBtn && GTK_IS_WIDGET(closeBtn)) {
@@ -1519,10 +1537,18 @@ void BrayaWindow::createTab(const char* url) {
 
         auto enterCallback = +[](GtkEventControllerMotion* controller, double x, double y, gpointer data) {
             GtkWidget* tabBtn = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
-            BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(tabBtn), "window"));
-            int tabIndex = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(tabBtn), "tab-index"));
 
-            if (!window || tabIndex < 0 || tabIndex >= window->tabs.size()) return;
+            // 🛡️ CRASH FIX: Check if widget is valid and not being destroyed
+            if (!tabBtn || !GTK_IS_WIDGET(tabBtn)) return;
+
+            BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(tabBtn), "window"));
+            if (!window) return;
+
+            // 🛡️ CRASH FIX: Abort if tab is being destroyed
+            if (window->destroyingTabs.count(tabBtn) > 0) return;
+
+            int tabIndex = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(tabBtn), "tab-index"));
+            if (tabIndex < 0 || tabIndex >= window->tabs.size()) return;
 
             // Check if we already have a popover showing
             GtkWidget* existingPopover = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "preview-popover"));
@@ -1555,6 +1581,16 @@ void BrayaWindow::createTab(const char* url) {
                 int tabIndex = data->tabIndex;
 
                 delete data;
+
+                // 🛡️ CRASH FIX: Validate widget before accessing
+                if (!tabBtn || !GTK_IS_WIDGET(tabBtn)) {
+                    return G_SOURCE_REMOVE;
+                }
+
+                // 🛡️ CRASH FIX: Check if tab is being destroyed
+                if (window && window->destroyingTabs.count(tabBtn) > 0) {
+                    return G_SOURCE_REMOVE;
+                }
 
                 // Clear the timer reference
                 guint* storedTimer = (guint*)g_object_get_data(G_OBJECT(tabBtn), "preview-timer");
@@ -1643,6 +1679,14 @@ void BrayaWindow::createTab(const char* url) {
 
         auto leaveCallback = +[](GtkEventControllerMotion* controller, gpointer data) {
             GtkWidget* tabBtn = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+
+            // 🛡️ CRASH FIX: Validate widget before accessing
+            if (!tabBtn || !GTK_IS_WIDGET(tabBtn)) return;
+
+            BrayaWindow* window = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(tabBtn), "window"));
+
+            // 🛡️ CRASH FIX: Abort if tab is being destroyed
+            if (window && window->destroyingTabs.count(tabBtn) > 0) return;
 
             // Cancel pending timer if exists
             guint* existingTimer = (guint*)g_object_get_data(G_OBJECT(tabBtn), "preview-timer");
@@ -1800,8 +1844,24 @@ void BrayaWindow::closeTab(int index) {
     // Clean up any preview popover and timer before removing the tab button
     GtkWidget* tabBtn = tabs[index]->getTabButton();
     if (tabBtn && GTK_IS_WIDGET(tabBtn)) {
-        // Disconnect ALL signals from tab button before removal to prevent callbacks
+        // 🛡️ CRASH FIX: Mark tab as destroying to prevent callbacks from executing
+        destroyingTabs.insert(tabBtn);
+
+        // 🛡️ PHASE 2 FIX: Block signals first to prevent new events from being queued
+        guint blockedCount = g_signal_handlers_block_matched(tabBtn, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
+
+        // Process any pending GTK events that are already queued
+        // This ensures callbacks in flight complete before we disconnect
+        while (g_main_context_pending(nullptr)) {
+            g_main_context_iteration(nullptr, FALSE);
+        }
+
+        // Now safe to disconnect - all queued events have been processed
         g_signal_handlers_disconnect_matched(tabBtn, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
+
+        if (blockedCount > 0) {
+            std::cout << "🛡️  Blocked and disconnected " << blockedCount << " signal handlers" << std::endl;
+        }
 
         // Cancel any pending timer
         guint* existingTimer = (guint*)g_object_get_data(G_OBJECT(tabBtn), "preview-timer");
@@ -2259,17 +2319,10 @@ void BrayaWindow::cacheFavicon(const std::string& url, GdkTexture* favicon) {
         cacheKey = url.substr(domainStart, domainEnd - domainStart);
     }
 
-    // Check if we already have a cached favicon for this domain
-    auto it = faviconCache.find(cacheKey);
-    if (it != faviconCache.end()) {
-        // Unreference old favicon
-        if (it->second) {
-            g_object_unref(it->second);
-        }
-    }
-
-    // Store new favicon with reference
-    faviconCache[cacheKey] = GDK_TEXTURE(g_object_ref(favicon));
+    // 🛡️ MEMORY FIX: GObjectPtr handles ref counting automatically
+    // Old favicon (if exists) is automatically unreffed when replaced
+    // New favicon is automatically reffed by GObjectPtr constructor
+    faviconCache[cacheKey] = GObjectPtr<GdkTexture>(favicon, true);
 
     std::cout << "💾 Cached favicon for: " << cacheKey << " (cache size: " << faviconCache.size() << ")" << std::endl;
 }
@@ -2289,9 +2342,13 @@ GdkTexture* BrayaWindow::getCachedFavicon(const std::string& url) {
     }
 
     auto it = faviconCache.find(cacheKey);
-    if (it != faviconCache.end() && it->second && GDK_IS_TEXTURE(it->second)) {
-        std::cout << "✓ Found cached favicon for: " << cacheKey << std::endl;
-        return it->second;
+    if (it != faviconCache.end() && it->second) {
+        // 🛡️ MEMORY FIX: Return raw pointer from GObjectPtr (doesn't transfer ownership)
+        GdkTexture* texture = it->second.get();
+        if (texture && GDK_IS_TEXTURE(texture)) {
+            std::cout << "✓ Found cached favicon for: " << cacheKey << std::endl;
+            return texture;
+        }
     }
 
     return nullptr;

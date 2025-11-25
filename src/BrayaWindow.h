@@ -6,7 +6,9 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <set>
 #include <string>
+#include "GObjectPtr.h"
 
 class BrayaTab;
 class BrayaSettings;
@@ -154,10 +156,13 @@ private:
     std::map<int, int> tabToGroup; // tabId -> groupId
     int nextGroupId;
 
-    // Favicon cache
-    std::map<std::string, GdkTexture*> faviconCache; // url -> favicon texture
+    // Favicon cache - using RAII wrapper for automatic memory management
+    std::map<std::string, GObjectPtr<GdkTexture>> faviconCache; // url -> favicon texture
     void cacheFavicon(const std::string& url, GdkTexture* favicon);
     GdkTexture* getCachedFavicon(const std::string& url);
+
+    // Crash prevention: Track tabs being destroyed to prevent use-after-free
+    std::set<GtkWidget*> destroyingTabs;
     
     // Settings
     std::unique_ptr<BrayaSettings> settings;

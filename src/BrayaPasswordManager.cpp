@@ -1440,14 +1440,19 @@ std::vector<PasswordEntry> BrayaPasswordManager::getPasswordsForUrl(const std::s
     }
 
     std::string domain = getDomain(url);
+    std::cout << "🔍 Searching passwords: URL domain='" << domain << "'" << std::endl;
+
     std::vector<PasswordEntry> matches;
-    
+
     for (const auto& entry : passwords) {
+        std::cout << "  Comparing with saved: '" << entry.url << "'" << std::endl;
         if (entry.url == domain) {
+            std::cout << "  ✅ MATCH!" << std::endl;
             matches.push_back(entry);
         }
     }
-    
+
+    std::cout << "🔍 Found " << matches.size() << " matches for domain '" << domain << "'" << std::endl;
     return matches;
 }
 
@@ -1677,18 +1682,23 @@ std::string BrayaPasswordManager::decryptLegacy(const std::string& data) {
 void BrayaPasswordManager::loadPasswords() {
     std::ifstream file(storageFile, std::ios::binary);
     if (!file.is_open()) {
+        std::cout << "📂 No password file found at: " << storageFile << std::endl;
         return; // No passwords saved yet
     }
-    
+
+    std::cout << "📂 Loading passwords from: " << storageFile << std::endl;
     passwords.clear();
-    
+
+    int lineNum = 0;
     std::string line;
     while (std::getline(file, line)) {
+        lineNum++;
         if (line.empty()) continue;
-        
+
         // Decrypt the line
         std::string decrypted = decrypt(line);
         if (decrypted.empty()) {
+            std::cout << "❌ Failed to decrypt password entry #" << lineNum << " (key mismatch or corrupted)" << std::endl;
             continue;
         }
 
@@ -1761,6 +1771,35 @@ void BrayaPasswordManager::loadPasswords() {
         if (parts.size() > 7) {
             entry.breached = parseBoolField(parts[7], false);
         }
+
+        // 🆕 Load new fields (backward compatible - defaults if not present)
+        if (parts.size() > 8) {
+            entry.favorite = parseBoolField(parts[8], false);
+        }
+        if (parts.size() > 9) {
+            entry.category = parts[9].empty() ? "Personal" : parts[9];
+        }
+        if (parts.size() > 10 && !parts[10].empty()) {
+            // Split tags by comma
+            std::string tagsStr = parts[10];
+            size_t pos = 0;
+            while ((pos = tagsStr.find(',')) != std::string::npos) {
+                std::string tag = tagsStr.substr(0, pos);
+                if (!tag.empty()) entry.tags.push_back(tag);
+                tagsStr.erase(0, pos + 1);
+            }
+            if (!tagsStr.empty()) entry.tags.push_back(tagsStr);
+        }
+        if (parts.size() > 11) {
+            entry.usageCount = parseIntField(parts[11], 0);
+        }
+        if (parts.size() > 12) {
+            entry.lastBreachCheck = parseLongField(parts[12], 0);
+        }
+        if (parts.size() > 13) {
+            entry.notes = parts[13];
+        }
+
         if (entry.strengthScore <= 0 && !entry.password.empty()) {
             entry.strengthScore = calculatePasswordStrength(entry.password);
         }
@@ -1788,12 +1827,23 @@ void BrayaPasswordManager::savePasswords() {
     chmod(storageFile.c_str(), S_IRUSR | S_IWUSR);
     
     for (const auto& entry : passwords) {
-        // Format: url|username|password|created|updated|lastUsed|strength|breached
-        std::string line = entry.url + "|" + entry.username + "|" + 
+        // 🆕 Extended format: url|username|password|created|updated|lastUsed|strength|breached|favorite|category|tags|usageCount|lastBreachCheck|notes
+
+        // Join tags with commas
+        std::string tagsStr;
+        for (size_t i = 0; i < entry.tags.size(); i++) {
+            tagsStr += entry.tags[i];
+            if (i < entry.tags.size() - 1) tagsStr += ",";
+        }
+
+        std::string line = entry.url + "|" + entry.username + "|" +
                           entry.password + "|" + std::to_string(entry.createdAt) + "|" +
                           std::to_string(entry.updatedAt) + "|" + std::to_string(entry.lastUsedAt) + "|" +
-                          std::to_string(entry.strengthScore) + "|" + (entry.breached ? "1" : "0");
-        
+                          std::to_string(entry.strengthScore) + "|" + (entry.breached ? "1" : "0") + "|" +
+                          (entry.favorite ? "1" : "0") + "|" + entry.category + "|" + tagsStr + "|" +
+                          std::to_string(entry.usageCount) + "|" + std::to_string(entry.lastBreachCheck) + "|" +
+                          entry.notes;
+
         // Encrypt and save
         std::string encrypted = encrypt(line);
         if (!encrypted.empty()) {
@@ -1858,6 +1908,7 @@ void BrayaPasswordManager::showPasswordManager(GtkWindow* parent) {
 
     enum class VaultFilter {
         All = 0,
+        Favorites,
         Recent,
         Weak,
         Breached
@@ -1990,6 +2041,8 @@ void BrayaPasswordManager::showPasswordManager(GtkWindow* parent) {
             switch (ctx->filter) {
                 case VaultFilter::All:
                     return TRUE;
+                case VaultFilter::Favorites:
+                    return entryData->favorite;
                 case VaultFilter::Recent: {
                     const long now = time(nullptr);
                     const long diff = now - entryData->updatedAt;
@@ -2059,12 +2112,60 @@ void BrayaPasswordManager::showPasswordManager(GtkWindow* parent) {
         GtkWidget* strengthLabel = gtk_label_new(strengthSummary.c_str());
         gtk_widget_set_halign(strengthLabel, GTK_ALIGN_START);
         gtk_widget_add_css_class(strengthLabel, "dim-label");
-        if (entry.breached) {
+
+        // 🆕 Add color coding for strength
+        if (entry.strengthScore >= 60) {
+            gtk_widget_add_css_class(strengthLabel, "success");
+        } else if (entry.strengthScore >= 40) {
+            gtk_widget_add_css_class(strengthLabel, "warning");
+        } else {
             gtk_widget_add_css_class(strengthLabel, "error");
         }
         gtk_box_append(GTK_BOX(infoBox), strengthLabel);
-        
+
         gtk_box_append(GTK_BOX(row), infoBox);
+
+        // 🆕 Add favorites button
+        GtkWidget* favBtn = gtk_button_new_from_icon_name(entry.favorite ? "starred-symbolic" : "non-starred-symbolic");
+        gtk_widget_set_tooltip_text(favBtn, entry.favorite ? "Remove from favorites" : "Add to favorites");
+        gtk_widget_add_css_class(favBtn, "flat");
+        gtk_widget_set_valign(favBtn, GTK_ALIGN_CENTER);
+
+        // Store data for favorite toggle
+        g_object_set_data_full(G_OBJECT(favBtn), "url", g_strdup(entry.url.c_str()), g_free);
+        g_object_set_data_full(G_OBJECT(favBtn), "username", g_strdup(entry.username.c_str()), g_free);
+        g_object_set_data(G_OBJECT(favBtn), "manager", this);
+        g_object_set_data(G_OBJECT(favBtn), "list_box", listBox);
+
+        g_signal_connect(favBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
+            auto* manager = static_cast<BrayaPasswordManager*>(g_object_get_data(G_OBJECT(btn), "manager"));
+            const char* url = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "url"));
+            const char* username = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "username"));
+            GtkListBox* list = GTK_LIST_BOX(g_object_get_data(G_OBJECT(btn), "list_box"));
+
+            if (manager && url && username) {
+                manager->toggleFavorite(url, username);
+
+                // 🔄 Refresh the list to show updated star
+                // Find parent window and refresh vault dialog
+                GtkWidget* parent = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_WINDOW);
+                if (parent) {
+                    gtk_window_close(GTK_WINDOW(parent));
+                    manager->showPasswordManager(GTK_WINDOW(gtk_widget_get_root(parent)));
+                }
+            }
+        }), nullptr);
+
+        gtk_box_append(GTK_BOX(row), favBtn);
+
+        // 🆕 Add weak password warning icon
+        if (entry.strengthScore < 40) {
+            GtkWidget* warnIcon = gtk_image_new_from_icon_name("dialog-warning-symbolic");
+            gtk_widget_set_tooltip_text(warnIcon, "⚠️ Weak password");
+            gtk_widget_set_valign(warnIcon, GTK_ALIGN_CENTER);
+            gtk_widget_add_css_class(warnIcon, "warning");
+            gtk_box_append(GTK_BOX(row), warnIcon);
+        }
 
         GtkWidget* buttonColumn = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
         gtk_widget_set_halign(buttonColumn, GTK_ALIGN_END);
@@ -2281,6 +2382,7 @@ void BrayaPasswordManager::showPasswordManager(GtkWindow* parent) {
     };
 
     appendNavButton(createNavButton("All logins", "Everything in your vault", VaultFilter::All));
+    appendNavButton(createNavButton("Favorites", "Your starred passwords", VaultFilter::Favorites));
     appendNavButton(createNavButton("Recently updated", "Changed in the last 14 days", VaultFilter::Recent));
     appendNavButton(createNavButton("Weak passwords", "Needs attention", VaultFilter::Weak));
     appendNavButton(createNavButton("Breached", "Marked as compromised", VaultFilter::Breached));
@@ -2460,10 +2562,18 @@ void BrayaPasswordManager::addPasswordManually(GtkWindow* parent) {
     gtk_entry_set_placeholder_text(GTK_ENTRY(usernameEntry), "user@example.com");
     gtk_box_append(GTK_BOX(box), usernameEntry);
 
-    // Password field
+    // Password field with mode selector
+    GtkWidget* passwordHeaderBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_box_append(GTK_BOX(box), passwordHeaderBox);
+
     GtkWidget* passwordLabel = gtk_label_new("Password:");
     gtk_widget_set_halign(passwordLabel, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(box), passwordLabel);
+    gtk_box_append(GTK_BOX(passwordHeaderBox), passwordLabel);
+
+    const char* genModes[] = {"Random", "Passphrase", nullptr};
+    GtkWidget* genModeDropdown = gtk_drop_down_new_from_strings(genModes);
+    gtk_widget_set_tooltip_text(genModeDropdown, "Generator mode");
+    gtk_box_append(GTK_BOX(passwordHeaderBox), genModeDropdown);
 
     // Password entry with controls
     GtkWidget* passwordBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
@@ -2492,12 +2602,21 @@ void BrayaPasswordManager::addPasswordManually(GtkWindow* parent) {
     gtk_widget_set_tooltip_text(generateBtn, "Generate Password");
     g_object_set_data(G_OBJECT(generateBtn), "manager", this);
     g_object_set_data(G_OBJECT(generateBtn), "password_entry", passwordEntry);
+    g_object_set_data(G_OBJECT(generateBtn), "gen_mode", genModeDropdown);
     g_signal_connect(generateBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
         auto* manager = static_cast<BrayaPasswordManager*>(g_object_get_data(G_OBJECT(btn), "manager"));
         GtkEntry* entry = GTK_ENTRY(g_object_get_data(G_OBJECT(btn), "password_entry"));
+        GtkDropDown* modeDropdown = GTK_DROP_DOWN(g_object_get_data(G_OBJECT(btn), "gen_mode"));
 
-        // Generate strong password (16 chars, all types)
-        std::string generated = manager->generatePassword(16, true, true, true, true);
+        std::string generated;
+        guint mode = gtk_drop_down_get_selected(modeDropdown);
+        if (mode == 1) {
+            // Passphrase mode
+            generated = manager->generatePassphrase(4, '-', true, true);
+        } else {
+            // Random password mode
+            generated = manager->generatePassword(16, true, true, true, true);
+        }
         gtk_editable_set_text(GTK_EDITABLE(entry), generated.c_str());
 
         // Temporarily show it
@@ -2542,6 +2661,15 @@ void BrayaPasswordManager::addPasswordManually(GtkWindow* parent) {
         }
     }), nullptr);
 
+    // Category dropdown
+    GtkWidget* categoryLabel = gtk_label_new("Category:");
+    gtk_widget_set_halign(categoryLabel, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(box), categoryLabel);
+
+    const char* categories[] = {"Personal", "Work", "Banking", "Social", "Shopping", "Other", nullptr};
+    GtkWidget* categoryDropdown = gtk_drop_down_new_from_strings(categories);
+    gtk_box_append(GTK_BOX(box), categoryDropdown);
+
     // Buttons
     GtkWidget* buttonBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     gtk_widget_set_halign(buttonBox, GTK_ALIGN_END);
@@ -2558,6 +2686,7 @@ void BrayaPasswordManager::addPasswordManually(GtkWindow* parent) {
     g_object_set_data(G_OBJECT(saveBtn), "url_entry", urlEntry);
     g_object_set_data(G_OBJECT(saveBtn), "username_entry", usernameEntry);
     g_object_set_data(G_OBJECT(saveBtn), "password_entry", passwordEntry);
+    g_object_set_data(G_OBJECT(saveBtn), "category_dropdown", categoryDropdown);
     g_object_set_data(G_OBJECT(saveBtn), "dialog", dialogWidget);
     g_object_set_data(G_OBJECT(saveBtn), "parent", parent);
 
@@ -2566,6 +2695,7 @@ void BrayaPasswordManager::addPasswordManually(GtkWindow* parent) {
         GtkEntry* urlEntry = GTK_ENTRY(g_object_get_data(G_OBJECT(btn), "url_entry"));
         GtkEntry* userEntry = GTK_ENTRY(g_object_get_data(G_OBJECT(btn), "username_entry"));
         GtkEntry* passEntry = GTK_ENTRY(g_object_get_data(G_OBJECT(btn), "password_entry"));
+        GtkDropDown* categoryDropdown = GTK_DROP_DOWN(g_object_get_data(G_OBJECT(btn), "category_dropdown"));
         GtkWidget* dialog = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
         GtkWindow* parent = GTK_WINDOW(g_object_get_data(G_OBJECT(btn), "parent"));
 
@@ -2575,6 +2705,16 @@ void BrayaPasswordManager::addPasswordManually(GtkWindow* parent) {
 
         if (url && username && password && strlen(url) > 0 && strlen(username) > 0 && strlen(password) > 0) {
             manager->savePassword(url, username, password);
+
+            // Set category
+            guint selected = gtk_drop_down_get_selected(categoryDropdown);
+            const char* categoryName = (selected == 0) ? "Personal" :
+                                       (selected == 1) ? "Work" :
+                                       (selected == 2) ? "Banking" :
+                                       (selected == 3) ? "Social" :
+                                       (selected == 4) ? "Shopping" : "Other";
+            manager->setCategory(url, username, categoryName);
+
             gtk_window_close(GTK_WINDOW(dialog));
             manager->showPasswordManager(parent);
         }
@@ -2641,6 +2781,23 @@ void BrayaPasswordManager::editPassword(const std::string& url, const std::strin
     gtk_editable_set_text(GTK_EDITABLE(passwordEntry), entry->password.c_str());
     gtk_box_append(GTK_BOX(box), passwordEntry);
 
+    // Category dropdown
+    GtkWidget* categoryLabel = gtk_label_new("Category:");
+    gtk_widget_set_halign(categoryLabel, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(box), categoryLabel);
+
+    const char* editCategories[] = {"Personal", "Work", "Banking", "Social", "Shopping", "Other", nullptr};
+    GtkWidget* categoryDropdown = gtk_drop_down_new_from_strings(editCategories);
+
+    // Set current category
+    for (guint i = 0; i < 6; i++) {
+        if (entry->category == editCategories[i]) {
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(categoryDropdown), i);
+            break;
+        }
+    }
+    gtk_box_append(GTK_BOX(box), categoryDropdown);
+
     // Buttons
     GtkWidget* buttonBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     gtk_widget_set_halign(buttonBox, GTK_ALIGN_END);
@@ -2658,6 +2815,7 @@ void BrayaPasswordManager::editPassword(const std::string& url, const std::strin
     g_object_set_data_full(G_OBJECT(saveBtn), "url", g_strdup(url.c_str()), g_free);
     g_object_set_data(G_OBJECT(saveBtn), "username_entry", usernameEntry);
     g_object_set_data(G_OBJECT(saveBtn), "password_entry", passwordEntry);
+    g_object_set_data(G_OBJECT(saveBtn), "category_dropdown", categoryDropdown);
     g_object_set_data(G_OBJECT(saveBtn), "dialog", dialogWidget);
     g_object_set_data(G_OBJECT(saveBtn), "parent", parent);
 
@@ -2667,6 +2825,7 @@ void BrayaPasswordManager::editPassword(const std::string& url, const std::strin
         const char* url = (const char*)g_object_get_data(G_OBJECT(btn), "url");
         GtkEntry* userEntry = GTK_ENTRY(g_object_get_data(G_OBJECT(btn), "username_entry"));
         GtkEntry* passEntry = GTK_ENTRY(g_object_get_data(G_OBJECT(btn), "password_entry"));
+        GtkDropDown* categoryDropdown = GTK_DROP_DOWN(g_object_get_data(G_OBJECT(btn), "category_dropdown"));
         GtkWidget* dialog = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "dialog"));
         GtkWindow* parent = GTK_WINDOW(g_object_get_data(G_OBJECT(btn), "parent"));
 
@@ -2675,6 +2834,16 @@ void BrayaPasswordManager::editPassword(const std::string& url, const std::strin
 
         if (newUsername && newPassword && strlen(newUsername) > 0 && strlen(newPassword) > 0) {
             manager->updatePassword(url, oldUsername, newUsername, newPassword);
+
+            // Update category
+            guint selected = gtk_drop_down_get_selected(categoryDropdown);
+            const char* categoryName = (selected == 0) ? "Personal" :
+                                       (selected == 1) ? "Work" :
+                                       (selected == 2) ? "Banking" :
+                                       (selected == 3) ? "Social" :
+                                       (selected == 4) ? "Shopping" : "Other";
+            manager->setCategory(url, newUsername, categoryName);
+
             gtk_window_close(GTK_WINDOW(dialog));
             manager->showPasswordManager(parent);
         }

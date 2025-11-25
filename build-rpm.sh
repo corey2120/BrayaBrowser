@@ -3,11 +3,11 @@
 
 set -e
 
-VERSION="1.0.1"
+VERSION="1.0.9"
 NAME="braya-browser"
 TARBALL="${NAME}-${VERSION}.tar.gz"
 
-echo "🚀 Building Braya Browser v${VERSION}-beta12 RPM Package..."
+echo "🚀 Building Braya Browser v${VERSION} RPM Package..."
 
 # Setup RPM build environment
 echo "📁 Setting up RPM build directories..."

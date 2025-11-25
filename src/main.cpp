@@ -6,6 +6,19 @@
 #include <ctime>
 #include <glib.h>
 
+// Work around Intel/Mesa DMA-BUF video issues by forcing GL renderer and disabling
+// the WebKit DMA-BUF path unless the user explicitly overrides the env vars.
+static void configureGraphicsWorkarounds() {
+    if (!g_getenv("WEBKIT_DISABLE_DMABUF_RENDERER")) {
+        g_setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", FALSE);
+        g_print("🛠️  Disabled WebKit DMA-BUF renderer (Intel/Mesa workaround)\n");
+    }
+    if (!g_getenv("GSK_RENDERER")) {
+        g_setenv("GSK_RENDERER", "gl", FALSE);
+        g_print("🖼️  Forcing GTK GL renderer for stable video compositing\n");
+    }
+}
+
 static void signalHandler(int signum) {
     std::cerr << "\n💥 CRASH DETECTED! Signal: " << signum << std::endl;
     std::cerr << "Signal type: ";
@@ -105,6 +118,8 @@ int main(int argc, char** argv) {
     g_print("Engine: WebKit\n");
     g_print("Platform: Native GTK\n");
     g_print("Building the REAL browser...\n\n");
+
+    configureGraphicsWorkarounds();
 
     // Set up persistent storage before creating any WebViews
     setupPersistentStorage();

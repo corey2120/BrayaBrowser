@@ -787,7 +787,7 @@ GtkWidget* BrayaSettings::createAdvancedTab() {
     
     GtkWidget* versionLabel = gtk_label_new(nullptr);
     gtk_label_set_markup(GTK_LABEL(versionLabel),
-        "<span>🐕 <b>Braya Browser</b> v1.0.2<br/>Built with WebKit2GTK 6.0 &amp; GTK 4</span>");
+        "<span>🐕 <b>Braya Browser</b> v1.0.9<br/>Built with WebKit2GTK 6.0 &amp; GTK 4</span>");
     gtk_widget_set_halign(versionLabel, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(aboutBody), versionLabel);
     

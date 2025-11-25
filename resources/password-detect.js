@@ -156,26 +156,52 @@
         }
     }
 
-    // Autofill function - improved with field detection
+    // Autofill function - AGGRESSIVE mode to work with ANY website
     window.fillPassword = function(username, password) {
-        const fields = getLoginFields();
-        
+        let fields = getLoginFields();
+
+        // If smart detection failed, use brute force approach
+        if (!fields.username || !fields.password) {
+            console.log('Smart detection failed, using aggressive search...');
+
+            // Find ANY visible password field
+            const allPasswordFields = Array.from(document.querySelectorAll('input[type="password"]'));
+            const visiblePasswordFields = allPasswordFields.filter(f => isVisibleField(f));
+
+            // Find ANY visible text/email field (that's not a password)
+            const allTextFields = Array.from(document.querySelectorAll('input[type="text"], input[type="email"], input:not([type])'));
+            const visibleTextFields = allTextFields.filter(f =>
+                isVisibleField(f) &&
+                f.type !== 'password' &&
+                f.type !== 'hidden' &&
+                f.type !== 'submit' &&
+                f.type !== 'button'
+            );
+
+            fields = {
+                username: visibleTextFields[0] || null,
+                password: visiblePasswordFields[0] || null
+            };
+
+            console.log('Aggressive search found:', fields.username ? 'username field' : 'no username', fields.password ? 'password field' : 'no password');
+        }
+
         if (fields.username && fields.password) {
             // Set values
             fields.username.value = username;
             fields.password.value = password;
 
-            // Trigger input events for frameworks like React/Vue
-            ['input', 'change'].forEach(eventType => {
+            // Trigger ALL events to ensure frameworks detect the change
+            ['input', 'change', 'blur', 'keyup'].forEach(eventType => {
                 fields.username.dispatchEvent(new Event(eventType, { bubbles: true }));
                 fields.password.dispatchEvent(new Event(eventType, { bubbles: true }));
             });
 
-            console.log('✓ Password autofilled');
+            console.log('✅ Password autofilled successfully');
             return true;
         }
-        
-        console.warn('Could not find login fields for autofill');
+
+        console.warn('❌ Could not find ANY login fields for autofill');
         return false;
     };
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(BrayaBrowser VERSION 1.0.8 LANGUAGES CXX)                                                                                                  
+project(BrayaBrowser VERSION 1.0.9 LANGUAGES CXX)                                                                                                  
                                                                                                                                                    
 set(CMAKE_CXX_STANDARD 17)                                                                                                                         
 set(CMAKE_CXX_STANDARD_REQUIRED ON)                                                                                                                
@@ -42,6 +42,7 @@ set(SOURCES
     src/TabGroup.cpp                                                                                                                               
     src/BrayaCustomization.cpp                                                                                                                     
     src/BrayaPasswordManager.cpp
+    src/BrayaPasswordManager_Extensions.cpp
     src/extensions/BrayaExtensionManager.cpp
     src/extensions/BrayaWebExtension.cpp
     src/extensions/BackgroundPageRunner.cpp
@@ -87,7 +88,8 @@ install(FILES resources/theme-dark.css DESTINATION share/braya-browser/resources
 install(FILES resources/theme-light.css DESTINATION share/braya-browser/resources)                                                                 
 install(FILES resources/theme-industrial.css DESTINATION share/braya-browser/resources)                                                            
 install(FILES resources/home.html DESTINATION share/braya-browser/resources)
-install(FILES resources/password-detect.js DESTINATION share/braya-browser/resources)                                                                       
+install(FILES resources/password-detect.js DESTINATION share/braya-browser/resources)
+install(FILES resources/eff-wordlist-short.txt DESTINATION share/braya-browser/resources)                                                                       
                                                                                                                                                    
 # Install icons at multiple sizes (both legacy and application ID names)
 set(BRAYA_ICON_SIZES 16 32 48 64 128 256 512)

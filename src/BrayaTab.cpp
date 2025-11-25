@@ -31,9 +31,30 @@ BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, B
     webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
 
     // 🚀 Performance: Enable hardware acceleration
-    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
+    // Use NEVER to force software rendering (fixes YUV/jumbled video on Intel GPU)
+    // WebGL still works independently of this setting
+    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER);
     webkit_settings_set_enable_webgl(settings, TRUE);
-    
+
+    // 🎥 Media: Basic video support (keeping it simple to avoid conflicts)
+    webkit_settings_set_enable_media_stream(settings, TRUE);
+    webkit_settings_set_media_playback_allows_inline(settings, TRUE);
+    webkit_settings_set_enable_media(settings, TRUE);
+    webkit_settings_set_enable_mediasource(settings, TRUE);
+    webkit_settings_set_enable_encrypted_media(settings, TRUE);
+    webkit_settings_set_enable_media_capabilities(settings, TRUE);
+    webkit_settings_set_media_content_types_requiring_hardware_support(settings, "");
+    webkit_settings_set_media_playback_requires_user_gesture(settings, FALSE);
+    webkit_settings_set_enable_webrtc(settings, TRUE);
+
+    // ⚡ AGGRESSIVE SCROLLING OPTIMIZATIONS
+    webkit_settings_set_enable_page_cache(settings, TRUE);  // Faster back/forward navigation
+    webkit_settings_set_enable_write_console_messages_to_stdout(settings, FALSE);  // Reduce I/O overhead
+
+    // JavaScript performance
+    webkit_settings_set_enable_javascript_markup(settings, TRUE);  // Faster JS execution
+    webkit_settings_set_javascript_can_access_clipboard(settings, TRUE);  // Reduce permission overhead
+
     // Create scrolled window
     scrolledWindow = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolledWindow), GTK_WIDGET(webView));
@@ -410,15 +431,112 @@ void BrayaTab::updateButton() {
 }
 
 void BrayaTab::onWebProcessCrashed(WebKitWebView* webView, gpointer userData) {
-    std::cerr << "⚠️ WebKit web process crashed!" << std::endl;
+    std::cerr << "💥 WebKit web process crashed!" << std::endl;
 
     if (!userData) return;
     BrayaTab* tab = static_cast<BrayaTab*>(userData);
+    if (!webView || !WEBKIT_IS_WEB_VIEW(webView)) return;
 
-    // Reload the page to restart the web process
-    if (webView && WEBKIT_IS_WEB_VIEW(webView)) {
-        webkit_web_view_reload(webView);
-    }
+    // 🛡️ CRASH FIX: Show user-friendly error page with reload option
+    std::string crashedUrl = tab->url;
+    std::string errorHtml = R"HTML(
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page Crashed</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            text-align: center;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            max-width: 500px;
+        }
+        h1 {
+            font-size: 72px;
+            margin: 0 0 20px 0;
+            animation: bounce 1s ease infinite;
+        }
+        h2 {
+            font-size: 28px;
+            margin: 0 0 15px 0;
+            font-weight: 600;
+        }
+        p {
+            font-size: 16px;
+            margin: 0 0 30px 0;
+            opacity: 0.9;
+            line-height: 1.6;
+        }
+        button {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 15px 40px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .url {
+            font-family: monospace;
+            background: rgba(0,0,0,0.2);
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            word-break: break-all;
+            font-size: 14px;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💥</h1>
+        <h2>Oops! Page Crashed</h2>
+        <p>The web page encountered an error and stopped working.</p>
+        <div class="url">)HTML" + crashedUrl + R"HTML(</div>
+        <p style="font-size: 14px;">This could be due to a memory issue, extension conflict, or problematic website code.</p>
+        <button onclick="location.reload()">&#x1F504; Reload Page</button>
+    </div>
+</body>
+</html>
+)HTML";
+
+    // Load error page
+    webkit_web_view_load_html(webView, errorHtml.c_str(), crashedUrl.c_str());
+
+    // Update tab title to indicate crash
+    tab->title = "💥 Crashed - " + (tab->title.empty() ? "Page" : tab->title);
+    tab->updateButton();
+
+    std::cerr << "🛡️ Crash recovery: Showing error page for " << crashedUrl << std::endl;
 }
 
 std::string BrayaTab::getResourcePath(const std::string& filename) {
@@ -689,6 +807,22 @@ void BrayaTab::onPasswordCaptured(WebKitUserContentManager* manager, JSCValue* v
         }
 
         auto existing = tab->passwordManager->getPasswordsForUrl(url);
+
+        // 🆕 FIX: Check if we already have this EXACT username+password
+        bool hasExactMatch = std::any_of(existing.begin(), existing.end(), [&](const PasswordEntry& entry) {
+            return entry.username == username && entry.password == password;
+        });
+
+        // If exact match exists, just update usage stats silently
+        if (hasExactMatch) {
+            std::cout << "✓ Password already saved (exact match), updating usage stats" << std::endl;
+            tab->passwordManager->savePassword(url, username, password);  // This updates lastUsedAt
+            g_free(url);
+            g_free(username);
+            g_free(password);
+            return;
+        }
+
         bool hasMatch = std::any_of(existing.begin(), existing.end(), [&](const PasswordEntry& entry) {
             return entry.username == username;
         });
@@ -907,26 +1041,202 @@ void BrayaTab::onPasswordCaptured(WebKitUserContentManager* manager, JSCValue* v
 }
 
 void BrayaTab::showAutofillSuggestions(const GdkRectangle* anchorRect) {
-    if (!passwordManager || url.empty()) return;
+    std::cout << "🔍 showAutofillSuggestions called" << std::endl;
 
-    auto passwords = passwordManager->getPasswordsForUrl(url);
-    if (passwords.empty()) {
+    if (!passwordManager) {
+        std::cout << "❌ No password manager!" << std::endl;
         return;
     }
 
-    if (autofillPopover) {
-        gtk_widget_unparent(autofillPopover);
-        autofillPopover = nullptr;
-    }
-    if (autofillToast) {
-        gtk_widget_unparent(autofillToast);
-        autofillToast = nullptr;
+    if (url.empty()) {
+        std::cout << "❌ URL is empty!" << std::endl;
+        return;
     }
 
+    std::cout << "📍 Current URL: " << url << std::endl;
+
+    auto passwords = passwordManager->getPasswordsForUrl(url);
+    std::cout << "🔐 Found " << passwords.size() << " password(s) for this URL" << std::endl;
+
+    if (passwords.empty()) {
+        std::cout << "❌ No passwords found for " << url << std::endl;
+        return;
+    }
+
+    std::cout << "🔔 Auto-filling password for " << passwords.size() << " account(s)" << std::endl;
+
+    // 🎯 SIMPLE APPROACH: Just fill the password fields automatically!
+    // No fancy UI - just fill it when the user clicks the login field
+    if (passwords.size() == 1) {
+        // Single password - auto-fill immediately
+        const auto& entry = passwords[0];
+
+        std::string escapedUser = entry.username;
+        std::string escapedPass = entry.password;
+
+        // Escape quotes for JavaScript
+        size_t pos = 0;
+        while ((pos = escapedUser.find("'", pos)) != std::string::npos) {
+            escapedUser.replace(pos, 1, "\\'");
+            pos += 2;
+        }
+        pos = 0;
+        while ((pos = escapedPass.find("'", pos)) != std::string::npos) {
+            escapedPass.replace(pos, 1, "\\'");
+            pos += 2;
+        }
+
+        std::string script = R"JS(
+            (function() {
+                if (typeof fillPassword === 'function') {
+                    fillPassword(')JS" + escapedUser + R"JS(', ')JS" + escapedPass + R"JS(');
+                    console.log('✅ Braya: Password auto-filled for ')JS" + entry.username + R"JS(');
+                }
+            })();
+        )JS";
+
+        webkit_web_view_evaluate_javascript(webView, script.c_str(), -1, nullptr, nullptr, nullptr,
+            [](GObject*, GAsyncResult*, gpointer) {
+                std::cout << "✅ Password auto-filled!" << std::endl;
+            }, nullptr);
+
+        return;
+    }
+
+    // Multiple passwords - show a simple alert
+    std::string autofillHTML = R"HTML(
+        <div id="braya-autofill-bar" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: 999999;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            animation: slideDown 0.3s ease-out;
+        ">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <span style="font-size: 24px;">🔐</span>
+                <div>
+                    <div style="font-weight: 600; font-size: 14px;">Use saved password?</div>
+                    <div style="font-size: 12px; opacity: 0.9;">)HTML" + std::to_string(passwords.size()) + R"HTML( account(s) available</div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px;">)HTML";
+
+    // Add a button for each password
+    for (size_t i = 0; i < passwords.size(); i++) {
+        const auto& entry = passwords[i];
+
+        // Escape quotes in username/password for JavaScript
+        std::string escapedUser = entry.username;
+        std::string escapedPass = entry.password;
+        size_t pos = 0;
+        while ((pos = escapedUser.find("'", pos)) != std::string::npos) {
+            escapedUser.replace(pos, 1, "\\'");
+            pos += 2;
+        }
+        pos = 0;
+        while ((pos = escapedPass.find("'", pos)) != std::string::npos) {
+            escapedPass.replace(pos, 1, "\\'");
+            pos += 2;
+        }
+
+        autofillHTML += R"HTML(
+                <button onclick="
+                    if (typeof fillPassword === 'function') {
+                        fillPassword(')HTML" + escapedUser + R"HTML(', ')HTML" + escapedPass + R"HTML(');
+                    }
+                    document.getElementById('braya-autofill-bar').remove();
+                " style="
+                    background: white;
+                    color: #667eea;
+                    border: none;
+                    padding: 8px 20px;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    font-size: 13px;
+                    transition: transform 0.2s;
+                " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                    )HTML" + entry.username + R"HTML(
+                </button>)HTML";
+    }
+
+    autofillHTML += R"HTML(
+                <button onclick="document.getElementById('braya-autofill-bar').remove();" style="
+                    background: rgba(255,255,255,0.2);
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    font-size: 13px;
+                ">Close</button>
+            </div>
+        </div>
+        <style>
+            @keyframes slideDown {
+                from {
+                    transform: translateY(-100%);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+        </style>
+    )HTML";
+
+    // Inject the HTML into the page
+    std::string script = R"JS(
+        (function() {
+            // Remove any existing autofill bar
+            var existing = document.getElementById('braya-autofill-bar');
+            if (existing) existing.remove();
+
+            // Inject the new bar
+            document.body.insertAdjacentHTML('afterbegin', `)JS" + autofillHTML + R"JS(');
+
+            // Auto-remove after 30 seconds
+            setTimeout(function() {
+                var bar = document.getElementById('braya-autofill-bar');
+                if (bar) bar.remove();
+            }, 30000);
+        })();
+    )JS";
+
+    webkit_web_view_evaluate_javascript(
+        webView,
+        script.c_str(),
+        -1,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
+    );
+
+    std::cout << "✅ Autofill bar injected into page!" << std::endl;
+    return;
+
+    // OLD POPOVER CODE BELOW - KEEPING AS FALLBACK
     GtkWidget* popover = gtk_popover_new();
     gtk_popover_set_has_arrow(GTK_POPOVER(popover), TRUE);
     gtk_popover_set_autohide(GTK_POPOVER(popover), TRUE);
-    gtk_widget_set_parent(popover, GTK_WIDGET(webView));
+
+    // 🔧 FIX: Use scrolledWindow as parent instead of WebView for better compatibility
+    GtkWidget* parent = scrolledWindow ? scrolledWindow : GTK_WIDGET(webView);
+    gtk_widget_set_parent(popover, parent);
+
     if (anchorRect) {
         gtk_popover_set_pointing_to(GTK_POPOVER(popover), anchorRect);
     }
@@ -1070,7 +1380,16 @@ void BrayaTab::showAutofillSuggestions(const GdkRectangle* anchorRect) {
     }), this);
 
     autofillPopover = popover;
+
+    // 🔍 DEBUG: Log and ensure visibility
+    std::cout << "🔔 Showing autofill popup with " << passwords.size() << " password(s)" << std::endl;
+
+    // Force position and visibility
+    gtk_popover_set_position(GTK_POPOVER(popover), GTK_POS_BOTTOM);
+    gtk_widget_set_visible(popover, TRUE);
     gtk_popover_popup(GTK_POPOVER(popover));
+
+    std::cout << "✓ Autofill popup displayed" << std::endl;
 }
 
 void BrayaTab::showAutofillToast(const std::string& message, const std::string& url, const std::string& username) {
@@ -1693,7 +2012,9 @@ void BrayaTab::resume() {
     webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
 
     // 🚀 Performance: Enable hardware acceleration
-    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
+    // Use NEVER to force software rendering (fixes YUV/jumbled video on Intel GPU)
+    // WebGL still works independently of this setting
+    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER);
     webkit_settings_set_enable_webgl(settings, TRUE);
 
     // Reattach to scrolled window

@@ -1,5 +1,5 @@
 Name:           braya-browser
-Version:        1.0.6
+Version:        1.0.9
 Release:        1%{?dist}
 Summary:        A modern, highly customizable web browser built with C++ and WebKit
 License:        MIT

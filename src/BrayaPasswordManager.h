@@ -9,6 +9,7 @@
 #include <set>
 
 struct PasswordEntry {
+    // Core fields
     std::string url;
     std::string username;
     std::string password;
@@ -17,6 +18,14 @@ struct PasswordEntry {
     long lastUsedAt = 0;
     int strengthScore = 0;
     bool breached = false;
+
+    // 🆕 Enhanced fields (Phase 1 improvements)
+    bool favorite = false;              // Star for quick access
+    std::string category = "Personal";  // Work, Personal, Banking, Social, etc.
+    std::vector<std::string> tags;      // Multiple tags for organization
+    int usageCount = 0;                 // How many times auto-filled
+    long lastBreachCheck = 0;           // Last time checked against HIBP
+    std::string notes = "";             // Encrypted notes (license keys, etc.)
 };
 
 class BrayaPasswordManager {
@@ -63,8 +72,20 @@ public:
 
     // Password Generator
     std::string generatePassword(int length = 16, bool includeSymbols = true, bool includeNumbers = true, bool includeUppercase = true, bool includeLowercase = true);
+    std::string generatePassphrase(int wordCount = 4, char separator = '-', bool includeNumber = true, bool capitalize = true);
     int calculatePasswordStrength(const std::string& password);
     std::string getPasswordStrengthLabel(int strength);
+
+    // 🆕 Organization & Filtering
+    void toggleFavorite(const std::string& url, const std::string& username);
+    void setCategory(const std::string& url, const std::string& username, const std::string& category);
+    void addTag(const std::string& url, const std::string& username, const std::string& tag);
+    void removeTag(const std::string& url, const std::string& username, const std::string& tag);
+    std::vector<PasswordEntry> getFavorites();
+    std::vector<PasswordEntry> getByCategory(const std::string& category);
+    std::vector<PasswordEntry> getWeakPasswords();  // strength < 40
+    std::vector<PasswordEntry> getReusedPasswords();  // same password on multiple sites
+    std::vector<PasswordEntry> searchPasswords(const std::string& query);  // search URL, username, tags
 
     // Utility methods
     std::string formatTimestampRelative(long timestamp) const;

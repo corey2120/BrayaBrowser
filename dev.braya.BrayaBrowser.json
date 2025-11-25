@@ -1,0 +1,51 @@
+{
+  "id": "dev.braya.BrayaBrowser",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "49",
+  "sdk": "org.gnome.Sdk",
+  "command": "braya-browser",
+  "finish-args": [
+    "--share=network",
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--socket=pulseaudio",
+    "--device=dri",
+    "--filesystem=xdg-download",
+    "--filesystem=xdg-config/braya-browser:create",
+    "--filesystem=xdg-data/braya-browser:create",
+    "--filesystem=xdg-cache/braya-browser:create",
+    "--talk-name=org.freedesktop.portal.Desktop",
+    "--talk-name=org.freedesktop.Notifications"
+  ],
+  "modules": [
+    {
+      "name": "libsodium",
+      "buildsystem": "autotools",
+      "config-opts": [
+        "--disable-shared"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://download.libsodium.org/libsodium/releases/libsodium-1.0.19.tar.gz",
+          "sha256": "018d79fe0a045cca07331d37bd0cb57b2e838c51bc48fd837a1472e50068bbea"
+        }
+      ]
+    },
+    {
+      "name": "braya-browser",
+      "buildsystem": "cmake-ninja",
+      "builddir": true,
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "."
+        }
+      ]
+    }
+  ]
+}
