@@ -592,3 +592,31 @@ separator {
 .speed-dial-add:hover {
     background: rgba(0, 0, 0, 0.05);
 }
+
+/* Tab close button - small red X in upper-left corner */
+.tab-close-button {
+    min-width: 14px !important;
+    min-height: 14px !important;
+    padding: 0px !important;
+    margin: 0 !important;
+    border: none !important;
+    background: #dc3232 !important;
+    border-radius: 3px !important;
+    opacity: 0 !important;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.tab-close-button image {
+    min-width: 10px !important;
+    min-height: 10px !important;
+    -gtk-icon-size: 10px !important;
+    color: white !important;
+}
+
+.tab-button:hover .tab-close-button {
+    opacity: 1 !important;
+}
+
+.tab-close-button:hover {
+    background: #ff3c3c !important;
+}

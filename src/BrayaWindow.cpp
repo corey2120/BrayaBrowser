@@ -1412,11 +1412,30 @@ void BrayaWindow::createTab(const char* url) {
     // Create close button (Zen-style - appears on hover)
     GtkWidget* closeBtn = gtk_button_new_from_icon_name("window-close-symbolic");
     gtk_widget_add_css_class(closeBtn, "tab-close-button");
-    gtk_widget_set_size_request(closeBtn, 12, 12);  // Very small
+    
+    // Apply red background directly via CSS provider (GTK4 ignores CSS background on buttons)
+    GtkCssProvider* btnProvider = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(btnProvider,
+        ".tab-close-button { "
+        "  background: #dc3232; "
+        "  min-width: 14px; "
+        "  min-height: 14px; "
+        "  padding: 0px; "
+        "  border: none; "
+        "  border-radius: 3px; "
+        "} "
+        ".tab-close-button:hover { background: #ff3c3c; }"
+    );
+    gtk_style_context_add_provider(gtk_widget_get_style_context(closeBtn),
+                                   GTK_STYLE_PROVIDER(btnProvider),
+                                   GTK_STYLE_PROVIDER_PRIORITY_USER);
+    g_object_unref(btnProvider);
+    
+    gtk_widget_set_size_request(closeBtn, 14, 14);  // Very small
     gtk_widget_set_halign(closeBtn, GTK_ALIGN_START);  // Upper LEFT corner
     gtk_widget_set_valign(closeBtn, GTK_ALIGN_START);
     gtk_widget_set_can_focus(closeBtn, FALSE);  // Don't steal focus
-    gtk_widget_set_opacity(closeBtn, 0.0);  // Hidden by default
+    gtk_widget_set_opacity(closeBtn, 0.0);  // Hidden by default - shows on hover
     gtk_widget_set_margin_start(closeBtn, 3);  // Small margin from edge
     gtk_widget_set_margin_top(closeBtn, 3);
 
@@ -1531,8 +1550,8 @@ void BrayaWindow::createTab(const char* url) {
     g_signal_connect(hoverController, "leave", G_CALLBACK(hideCloseBtn), nullptr);
     gtk_widget_add_controller(tabBtn, hoverController);
 
-    // Add hover controller for tab preview with debouncing (if enabled in settings)
-    if (settings && settings->getShowTabPreviews()) {
+    // Tab preview disabled - causing problems
+    if (false && settings && settings->getShowTabPreviews()) {
         GtkEventController* motion_controller = gtk_event_controller_motion_new();
 
         auto enterCallback = +[](GtkEventControllerMotion* controller, double x, double y, gpointer data) {
