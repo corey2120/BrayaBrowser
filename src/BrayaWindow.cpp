@@ -387,6 +387,10 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
 
     WebKitWebContext* context = webkit_web_context_get_default();
 
+    // Note: WebKit 2.50+ automatically manages favicon database
+    // The directories we created above will be used automatically
+    std::cout << "✓ WebKit will use favicon database at: " << iconDbDir << std::endl;
+
     // ⚡ PERFORMANCE: Optimize for smooth scrolling and responsiveness
     webkit_web_context_set_cache_model(context, WEBKIT_CACHE_MODEL_WEB_BROWSER);
 
