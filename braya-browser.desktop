@@ -5,6 +5,7 @@ Name=Braya Browser
 Comment=Modern, highly customizable web browser
 Exec=braya-browser %U
 Icon=dev.braya.BrayaBrowser
+StartupWMClass=dev.braya.BrayaBrowser
 Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
 Keywords=browser;web;internet;

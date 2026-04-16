@@ -9,15 +9,17 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  gcc-c++
 BuildRequires:  cmake >= 3.10
 BuildRequires:  gtk4-devel
-BuildRequires:  webkit2gtk4.1-devel
+BuildRequires:  webkitgtk6.0-devel
 BuildRequires:  openssl-devel
 BuildRequires:  libsodium-devel
+BuildRequires:  json-glib-devel
 BuildRequires:  pkgconfig
 
 Requires:       gtk4
-Requires:       webkit2gtk4.1
+Requires:       webkitgtk6.0
 Requires:       openssl-libs
 Requires:       libsodium
+Requires:       json-glib
 
 %description
 Braya Browser is a cutting-edge web browser featuring:
@@ -127,6 +129,12 @@ fi
 /usr/bin/update-desktop-database &>/dev/null || :
 
 %changelog
+* Wed Apr 16 2026 Corey O'Brien <corey@braya.dev> - 1.0.6-2
+- Rebuild for Fedora 44 with webkitgtk6.0 2.52.1 and GTK4 4.22.2
+- Switched BuildRequires from webkit2gtk4.1-devel to webkitgtk6.0-devel
+- Added missing json-glib-devel BuildRequires
+- Updated Requires to match runtime packages on Fedora 44
+
 * Fri Nov 15 2024 Corey O'Brien <corey@braya.dev> - 1.0.6-1
 - Version 1.0.6 release - Password Manager Polish & UX Refinements
 - NEW: 3-panel password manager layout (filters, list, detail view)

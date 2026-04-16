@@ -1,0 +1,60 @@
+# Local build PKGBUILD (for testing)
+# Maintainer: Corey O'Brien <corey@braya.dev>
+pkgname=braya-browser
+pkgver=1.0.6
+pkgrel=1
+pkgdesc="A modern, highly customizable web browser built with C++ and WebKit"
+arch=('x86_64')
+url="https://github.com/corey2120/BrayaBrowser"
+license=('MIT')
+depends=(
+    'gtk4'
+    'webkitgtk-6.0'
+    'openssl'
+    'json-glib'
+    'libsodium'
+)
+makedepends=(
+    'cmake'
+    'gcc'
+    'make'
+    'pkg-config'
+)
+source=("${pkgname}-${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    
+    # Add missing member variables to BrayaTab.h if needed
+    if ! grep -q "suspendedUrl" src/BrayaTab.h; then
+        sed -i '/bool suspended;/a\    std::string suspendedUrl;\n    std::string suspendedTitle;\n    GdkTexture\* cachedFavicon;' src/BrayaTab.h
+    fi
+}
+
+build() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    
+    mkdir -p build
+    cd build
+    
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr
+    
+    make -j$(nproc)
+}
+
+package() {
+    cd "${srcdir}/${pkgname}-${pkgver}/build"
+    
+    make DESTDIR="${pkgdir}" install
+    
+    # Install LICENSE
+    install -Dm644 "${srcdir}/${pkgname}-${pkgver}/LICENSE" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    
+    # Install README
+    install -Dm644 "${srcdir}/${pkgname}-${pkgver}/README.md" \
+        "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+}

@@ -6,6 +6,9 @@ rpm-output/
 # Archives
 .archive/
 
+# RPM packages
+*.rpm
+
 # Compiled files
 *.o
 *.so

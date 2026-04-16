@@ -64,6 +64,7 @@ public:
     std::string getDownloadPath() const { return downloadPath; }
     std::string getHomePage() const { return homePage; }
     std::string getSearchEngine() const { return searchEngine; }
+    bool getMemoryIndicatorEnabled() const { return memoryIndicatorEnabled; }
     
     // Setters
     void setTheme(Theme t);

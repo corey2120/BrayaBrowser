@@ -80,7 +80,11 @@ private:
     bool pinned;
     bool muted;
     bool readerMode;
+    bool suspended;
     std::string originalContent; // For reader mode toggle
+    std::string suspendedUrl;
+    std::string suspendedTitle;
+    GdkTexture* cachedFavicon;
 
     // 💤 Tab suspension state (Phase 2 memory optimization)
     bool suspended;
