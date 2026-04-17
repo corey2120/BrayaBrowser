@@ -101,6 +101,10 @@ private:
     guint toastTimerSource = 0;
     guint deferredSetupSource = 0;  // Source ID for deferred password/extension setup
 
+    void fetchFaviconViaJS();
+    void loadFaviconFromURL(const std::string& url);
+    void setFaviconFromBytes(const guchar* data, gsize length);
+
     void setupPasswordManager();
     void injectPasswordScript();
     void autoFillPasswords();

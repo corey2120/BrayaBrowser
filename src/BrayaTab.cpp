@@ -9,8 +9,9 @@
 #include <sstream>
 #include <vector>
 #include <algorithm>
-#include <algorithm>
 #include <sys/stat.h>
+#include <jsc/jsc.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 
 BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, BrayaExtensionManager* extMgr)
     : id(id), url(url ? url : "about:braya"), title("New Tab"), isLoading(false),
@@ -54,6 +55,9 @@ BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, B
     // JavaScript performance
     webkit_settings_set_enable_javascript_markup(settings, TRUE);  // Faster JS execution
     webkit_settings_set_javascript_can_access_clipboard(settings, TRUE);  // Reduce permission overhead
+
+    // Store tab reference on webView so timer callbacks can safely retrieve it
+    g_object_set_data(G_OBJECT(webView), "braya-tab", this);
 
     // Create scrolled window
     scrolledWindow = gtk_scrolled_window_new();
@@ -142,7 +146,12 @@ BrayaTab::~BrayaTab() {
         g_object_unref(favicon);
         favicon = nullptr;
     }
-    
+
+    // Clear tab reference so any in-flight favicon timers don't dereference us
+    if (webView && WEBKIT_IS_WEB_VIEW(webView)) {
+        g_object_set_data(G_OBJECT(webView), "braya-tab", nullptr);
+    }
+
     tabButton = nullptr;
     // GTK will handle widget cleanup
 }
@@ -172,7 +181,7 @@ void BrayaTab::onLoadChanged(WebKitWebView* webView, WebKitLoadEvent loadEvent, 
                 }
             }
 
-            // If no cache hit, try to get from WebKit
+            // If no cache hit, try to get from WebKit immediately
             if (!tab->favicon) {
                 GdkTexture* favicon = webkit_web_view_get_favicon(webView);
                 if (favicon && GDK_IS_TEXTURE(favicon)) {
@@ -183,12 +192,14 @@ void BrayaTab::onLoadChanged(WebKitWebView* webView, WebKitLoadEvent loadEvent, 
                     }
                     tab->favicon = GDK_TEXTURE(g_object_ref(favicon));
 
-                    // Cache it
                     if (tab->faviconCacheCallback && !tab->url.empty()) {
                         tab->faviconCacheCallback(tab->url, favicon);
                     }
                 }
             }
+
+            // Always fetch favicon via JS — more reliable than webkit_web_view_get_favicon()
+            tab->fetchFaviconViaJS();
 
             // Inject extension content scripts
             if (tab->extensionManager) {
@@ -233,10 +244,25 @@ void BrayaTab::onUriChanged(WebKitWebView* webView, GParamSpec* pspec, gpointer 
     if (!userData || !webView) return;
     BrayaTab* tab = static_cast<BrayaTab*>(userData);
     if (!tab) return;
-    
+
     try {
         const gchar* uri = webkit_web_view_get_uri(webView);
         if (uri && strlen(uri) > 0) {
+            // Clear stale favicon when navigating to a different origin
+            if (!tab->url.empty() && tab->favicon) {
+                // Extract origins to compare
+                auto origin = [](const std::string& u) -> std::string {
+                    size_t p = u.find("://");
+                    if (p == std::string::npos) return u;
+                    size_t s = u.find('/', p + 3);
+                    return s == std::string::npos ? u : u.substr(0, s);
+                };
+                if (origin(tab->url) != origin(std::string(uri))) {
+                    g_object_unref(tab->favicon);
+                    tab->favicon = nullptr;
+                    tab->updateButton();
+                }
+            }
             tab->url = uri;
         }
     } catch (...) {
@@ -2010,6 +2036,8 @@ void BrayaTab::resume() {
     WebKitSettings* settings = webkit_web_view_get_settings(webView);
     webkit_settings_set_enable_developer_extras(settings, TRUE);
     webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+    // Store tab reference on webView so timer callbacks can safely retrieve it
+    g_object_set_data(G_OBJECT(webView), "braya-tab", this);
 
     // 🚀 Performance: Enable hardware acceleration
     // Use NEVER to force software rendering (fixes YUV/jumbled video on Intel GPU)
@@ -2065,4 +2093,140 @@ void BrayaTab::resume() {
     }
 
     std::cout << "  ✓ Tab resumed, WebView recreated" << std::endl;
+}
+
+// ---------------------------------------------------------------------------
+// JS-based favicon fetching — more reliable than webkit_web_view_get_favicon()
+// ---------------------------------------------------------------------------
+
+void BrayaTab::fetchFaviconViaJS() {
+    if (!webView || !WEBKIT_IS_WEB_VIEW(webView)) return;
+
+    // Skip non-HTTP pages (new tab, file://, etc.)
+    const char* uri = webkit_web_view_get_uri(webView);
+    if (!uri || (strncmp(uri, "http", 4) != 0)) return;
+
+    // Find the best favicon URL declared on the page, fall back to /favicon.ico
+    const char* js =
+        "(function(){"
+        "  var sizes=[192,128,96,64,48,32,16];"
+        "  var best=null, bestSize=0;"
+        "  var links=document.querySelectorAll('link[rel]');"
+        "  for(var i=0;i<links.length;i++){"
+        "    var rel=links[i].rel.toLowerCase();"
+        "    if(rel.indexOf('icon')<0) continue;"
+        "    var href=links[i].href;"
+        "    if(!href||href.startsWith('data:')) continue;"
+        "    var sz=parseInt(links[i].sizes&&links[i].sizes[0])||0;"
+        "    if(!best||sz>bestSize){best=href;bestSize=sz;}"
+        "  }"
+        "  return best||window.location.protocol+'//'+window.location.host+'/favicon.ico';"
+        "})()";
+
+    webkit_web_view_evaluate_javascript(
+        webView, js, -1, nullptr, nullptr, nullptr,
+        +[](GObject* obj, GAsyncResult* result, gpointer data) {
+            WebKitWebView* wv = WEBKIT_WEB_VIEW(obj);
+            BrayaTab* tab = static_cast<BrayaTab*>(
+                g_object_get_data(G_OBJECT(wv), "braya-tab"));
+            if (!tab) return;
+
+            GError* error = nullptr;
+            JSCValue* value = webkit_web_view_evaluate_javascript_finish(wv, result, &error);
+            if (error) { g_error_free(error); return; }
+            if (!value || !jsc_value_is_string(value)) {
+                if (value) g_object_unref(value);
+                return;
+            }
+
+            char* urlStr = jsc_value_to_string(value);
+            g_object_unref(value);
+            if (!urlStr || strlen(urlStr) < 8) { g_free(urlStr); return; }
+
+            std::string faviconUrl(urlStr);
+            g_free(urlStr);
+
+            // Check cache first
+            if (tab->faviconGetCallback && !tab->url.empty()) {
+                GdkTexture* cached = tab->faviconGetCallback(tab->url);
+                if (cached && GDK_IS_TEXTURE(cached)) {
+                    if (tab->favicon) g_object_unref(tab->favicon);
+                    tab->favicon = GDK_TEXTURE(g_object_ref(cached));
+                    tab->updateButton();
+                    return;
+                }
+            }
+
+            tab->loadFaviconFromURL(faviconUrl);
+        },
+        this
+    );
+}
+
+void BrayaTab::loadFaviconFromURL(const std::string& url) {
+    if (url.empty()) return;
+
+    GFile* file = g_file_new_for_uri(url.c_str());
+    if (!file) return;
+
+    // wv holds a ref so the WebView stays alive for the duration of the request.
+    // GIO does NOT take ownership of `file`, so we unref it after handing off.
+    WebKitWebView* wvRef = WEBKIT_WEB_VIEW(g_object_ref(webView));
+
+    g_file_load_contents_async(file, nullptr,
+        +[](GObject* source, GAsyncResult* result, gpointer data) {
+            WebKitWebView* wv = WEBKIT_WEB_VIEW(data);
+            BrayaTab* tab = static_cast<BrayaTab*>(
+                g_object_get_data(G_OBJECT(wv), "braya-tab"));
+
+            gchar* contents = nullptr;
+            gsize length = 0;
+            GError* error = nullptr;
+
+            if (tab && g_file_load_contents_finish(G_FILE(source),
+                        result, &contents, &length, nullptr, &error)) {
+                tab->setFaviconFromBytes((const guchar*)contents, length);
+                g_free(contents);
+            }
+            if (error) g_error_free(error);
+
+            // Release the WebView ref we took before starting the request
+            g_object_unref(wv);
+        },
+        wvRef
+    );
+
+    // We own `file` — unref after handing it to GIO
+    g_object_unref(file);
+}
+
+void BrayaTab::setFaviconFromBytes(const guchar* data, gsize length) {
+    if (!data || length == 0) return;
+
+    GError* error = nullptr;
+    GBytes* bytes = g_bytes_new(data, length);
+    GdkTexture* texture = gdk_texture_new_from_bytes(bytes, &error);
+    g_bytes_unref(bytes);
+
+    if (error) {
+        // Try via GdkPixbuf loader (handles more formats like ICO)
+        g_error_free(error);
+        GdkPixbufLoader* loader = gdk_pixbuf_loader_new();
+        if (gdk_pixbuf_loader_write(loader, data, length, nullptr) &&
+            gdk_pixbuf_loader_close(loader, nullptr)) {
+            GdkPixbuf* pixbuf = gdk_pixbuf_loader_get_pixbuf(loader);
+            if (pixbuf) texture = gdk_texture_new_for_pixbuf(pixbuf);
+        }
+        g_object_unref(loader);
+    }
+
+    if (!texture) return;
+
+    if (favicon) g_object_unref(favicon);
+    favicon = texture;
+
+    if (faviconCacheCallback && !url.empty()) {
+        faviconCacheCallback(url, texture);
+    }
+    updateButton();
 }

@@ -870,16 +870,23 @@ void BrayaWindow::updateAdBlockerShield() {
     if (!adBlockerShieldBtn || !GTK_IS_WIDGET(adBlockerShieldBtn)) return;
     if (!adBlocker) return;
 
-    // Update button color based on enabled state
-    if (adBlocker->isEnabled()) {
-        gtk_widget_add_css_class(adBlockerShieldBtn, "accent");  // Blue
-        gtk_widget_remove_css_class(adBlockerShieldBtn, "dim-label");
-        gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad Blocker: Enabled");
-    } else {
-        gtk_widget_remove_css_class(adBlockerShieldBtn, "accent");
-        gtk_widget_add_css_class(adBlockerShieldBtn, "dim-label");  // Grey
-        gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad Blocker: Disabled");
+    BlockingStats stats = adBlocker->getStats();
+    int totalBlocked = stats.total_blocked;
+
+    // Update button label — only show count when something has been blocked
+    std::string label = totalBlocked > 0 ? "🛡️ " + std::to_string(totalBlocked) : "🛡️";
+    gtk_button_set_label(GTK_BUTTON(adBlockerShieldBtn), label.c_str());
+
+    // Update tooltip
+    std::string tooltip = "Ad-Blocker";
+    if (totalBlocked > 0) {
+        tooltip += " (" + std::to_string(totalBlocked) + " blocked";
+        if (stats.blocked_today > 0) {
+            tooltip += ", " + std::to_string(stats.blocked_today) + " today";
+        }
+        tooltip += ")";
     }
+    gtk_widget_set_tooltip_text(adBlockerShieldBtn, tooltip.c_str());
 }
 
 void BrayaWindow::setupUI() {
@@ -1100,11 +1107,19 @@ void BrayaWindow::createNavbar() {
     gtk_widget_set_hexpand(urlEntry, TRUE);
     g_signal_connect(urlEntry, "activate", G_CALLBACK(onUrlActivate), this);
 
-    // Select all text when URL entry gets focus
+
+    // Select all text when URL entry gets focus.
+    // Defer via g_idle_add so the selection runs after the mouse-release event
+    // that would otherwise immediately clear it.
     GtkEventController* focus_controller = gtk_event_controller_focus_new();
     g_signal_connect_swapped(focus_controller, "enter",
         G_CALLBACK(+[](GtkWidget* entry) {
-            gtk_editable_select_region(GTK_EDITABLE(entry), 0, -1);
+            g_idle_add([](gpointer data) -> gboolean {
+                GtkWidget* e = GTK_WIDGET(data);
+                if (GTK_IS_EDITABLE(e))
+                    gtk_editable_select_region(GTK_EDITABLE(e), 0, -1);
+                return G_SOURCE_REMOVE;
+            }, entry);
         }), urlEntry);
     gtk_widget_add_controller(urlEntry, focus_controller);
 
@@ -1158,15 +1173,11 @@ void BrayaWindow::createNavbar() {
     gtk_widget_add_css_class(extensionButtonsBox, "extension-buttons");
     gtk_box_append(GTK_BOX(rightBox), extensionButtonsBox);
 
-    // Ad-Blocker Shield button (blue when enabled, grey when disabled)
+    // Ad-Blocker Shield button
     adBlockerShieldBtn = gtk_button_new_with_label("🛡️");
-    gtk_widget_set_tooltip_text(adBlockerShieldBtn, adBlocker && adBlocker->isEnabled() ? "Ad Blocker: Enabled" : "Ad Blocker: Disabled");
-    gtk_widget_add_css_class(adBlockerShieldBtn, "flat");
-    if (adBlocker && adBlocker->isEnabled()) {
-        gtk_widget_add_css_class(adBlockerShieldBtn, "accent");  // Blue when enabled
-    } else {
-        gtk_widget_add_css_class(adBlockerShieldBtn, "dim-label");  // Grey when disabled
-    }
+    gtk_widget_set_tooltip_text(adBlockerShieldBtn, "Ad-Blocker");
+    gtk_widget_add_css_class(adBlockerShieldBtn, "action-btn");
+    gtk_widget_add_css_class(adBlockerShieldBtn, "shield-btn");
     g_signal_connect(adBlockerShieldBtn, "clicked", G_CALLBACK(onAdBlockerShieldClicked), this);
     gtk_box_append(GTK_BOX(rightBox), adBlockerShieldBtn);
 
