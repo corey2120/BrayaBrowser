@@ -375,8 +375,22 @@ void BrayaAdBlocker::ensureFilterListsDownloaded() {
     for (auto& fl : m_filterLists) {
         if (!fl.enabled) continue;
         if (needsUpdate(fl.local_path)) {
-            std::cout << "  ⬇️  Downloading filter list: " << fl.name << std::endl;
-            downloadFile(fl.url, fl.local_path);
+            std::cout << "  Downloading filter list: " << fl.name << std::endl;
+            if (downloadFile(fl.url, fl.local_path)) {
+                // Record download timestamp as ISO date string
+                time_t now = time(nullptr);
+                char buf[32];
+                strftime(buf, sizeof(buf), "%Y-%m-%d", localtime(&now));
+                fl.last_updated = buf;
+            }
+        } else if (fl.last_updated.empty()) {
+            // Populate from file mtime if not yet set
+            struct stat st;
+            if (stat(fl.local_path.c_str(), &st) == 0) {
+                char buf[32];
+                strftime(buf, sizeof(buf), "%Y-%m-%d", localtime(&st.st_mtime));
+                fl.last_updated = buf;
+            }
         }
     }
 }

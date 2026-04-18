@@ -61,10 +61,10 @@ public:
     bool getEnablePlugins() const { return enablePlugins; }
     bool getShowTabPreviews() const { return showTabPreviews; }
     bool getMemoryIndicatorEnabled() const { return memoryIndicatorEnabled; }
+    bool getRestoreSession() const { return restoreSession; }
     std::string getDownloadPath() const { return downloadPath; }
     std::string getHomePage() const { return homePage; }
     std::string getSearchEngine() const { return searchEngine; }
-    bool getMemoryIndicatorEnabled() const { return memoryIndicatorEnabled; }
     
     // Setters
     void setTheme(Theme t);
@@ -102,6 +102,7 @@ private:
     bool enablePlugins;
     bool showTabPreviews;
     bool memoryIndicatorEnabled;
+    bool restoreSession;
     std::string downloadPath;
     std::string homePage;
     std::string searchEngine;
@@ -173,7 +174,7 @@ private:
     GtkWidget* createPrivacyTab();
     GtkWidget* createAdvancedTab();
     GtkWidget* createExtensionsTab();
-    GtkWidget* createAdBlockerTab();
+
     GtkWidget* createPasswordsTab();
     void updateAdBlockerUI();
     void applySettings();
@@ -198,10 +199,8 @@ private:
     void removeExtension(const std::string& extensionId);
     
     // Callbacks
-    static void onThemeChanged(GtkComboBox* combo, gpointer data);
+    static void onThemeChanged(GObject* obj, GParamSpec* pspec, gpointer data);
     static void onColorButtonClicked(GtkButton* button, gpointer data);
-    static void onApplyClicked(GtkButton* button, gpointer data);
-    static void onCloseClicked(GtkButton* button, gpointer data);
     static void onBookmarksToggled(GtkSwitch* widget, gboolean state, gpointer data);
     static void onFontSizeChanged(GtkSpinButton* button, gpointer data);
 
@@ -213,7 +212,7 @@ private:
     // Ad-blocker callbacks
     static gboolean onMultiStepToggle(GtkSwitch* toggle, gboolean state, gpointer data);
     static void onAdBlockerToggled(GtkSwitch* toggle, gboolean state, gpointer data);
-    static void onSecurityLevelChanged(GtkComboBox* combo, gpointer data);
+    static void onSecurityLevelChanged(GObject* obj, GParamSpec* pspec, gpointer data);
     static void onFeatureToggled(GtkCheckButton* button, gpointer data);
     static void onAddToWhitelist(GtkButton* button, gpointer data);
     static void onRemoveFromWhitelist(GtkButton* button, gpointer data);

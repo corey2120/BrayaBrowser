@@ -1923,89 +1923,77 @@ std::vector<Bookmark> BrayaBookmarks::getFavoriteBookmarks(int count) {
 // Import/Export Functions
 
 // Static callbacks for import/export dialog
-static void onImportChromeResponse(GtkDialog* dialog, int response, BrayaBookmarks* bm) {
-    if (response == GTK_RESPONSE_ACCEPT) {
-        GtkFileChooser* chooser = GTK_FILE_CHOOSER(dialog);
-        GFile* file = gtk_file_chooser_get_file(chooser);
-        char* filepath = g_file_get_path(file);
-        bm->importFromChrome(filepath);
-        g_free(filepath);
-        g_object_unref(file);
-    }
-    gtk_window_destroy(GTK_WINDOW(dialog));
+static void onImportChromeClicked(GtkButton*, BrayaBookmarks* bm) {
+    GtkFileDialog* fd = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(fd, "Import from Chrome");
+    gtk_file_dialog_open(fd, nullptr, nullptr,
+        [](GObject* src, GAsyncResult* res, gpointer data) {
+            GError* err = nullptr;
+            GFile* file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(src), res, &err);
+            if (file) {
+                char* path = g_file_get_path(file);
+                static_cast<BrayaBookmarks*>(data)->importFromChrome(path);
+                g_free(path);
+                g_object_unref(file);
+            }
+            if (err) g_error_free(err);
+            g_object_unref(src);
+        }, bm);
 }
 
-static void onImportFirefoxResponse(GtkDialog* dialog, int response, BrayaBookmarks* bm) {
-    if (response == GTK_RESPONSE_ACCEPT) {
-        GtkFileChooser* chooser = GTK_FILE_CHOOSER(dialog);
-        GFile* file = gtk_file_chooser_get_file(chooser);
-        char* filepath = g_file_get_path(file);
-        bm->importFromFirefox(filepath);
-        g_free(filepath);
-        g_object_unref(file);
-    }
-    gtk_window_destroy(GTK_WINDOW(dialog));
+static void onImportFirefoxClicked(GtkButton*, BrayaBookmarks* bm) {
+    GtkFileDialog* fd = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(fd, "Import from Firefox");
+    gtk_file_dialog_open(fd, nullptr, nullptr,
+        [](GObject* src, GAsyncResult* res, gpointer data) {
+            GError* err = nullptr;
+            GFile* file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(src), res, &err);
+            if (file) {
+                char* path = g_file_get_path(file);
+                static_cast<BrayaBookmarks*>(data)->importFromFirefox(path);
+                g_free(path);
+                g_object_unref(file);
+            }
+            if (err) g_error_free(err);
+            g_object_unref(src);
+        }, bm);
 }
 
-static void onImportHTMLResponse(GtkDialog* dialog, int response, BrayaBookmarks* bm) {
-    if (response == GTK_RESPONSE_ACCEPT) {
-        GtkFileChooser* chooser = GTK_FILE_CHOOSER(dialog);
-        GFile* file = gtk_file_chooser_get_file(chooser);
-        char* filepath = g_file_get_path(file);
-        bm->importFromHTML(filepath);
-        g_free(filepath);
-        g_object_unref(file);
-    }
-    gtk_window_destroy(GTK_WINDOW(dialog));
+static void onImportHTMLClicked(GtkButton*, BrayaBookmarks* bm) {
+    GtkFileDialog* fd = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(fd, "Import from HTML");
+    gtk_file_dialog_open(fd, nullptr, nullptr,
+        [](GObject* src, GAsyncResult* res, gpointer data) {
+            GError* err = nullptr;
+            GFile* file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(src), res, &err);
+            if (file) {
+                char* path = g_file_get_path(file);
+                static_cast<BrayaBookmarks*>(data)->importFromHTML(path);
+                g_free(path);
+                g_object_unref(file);
+            }
+            if (err) g_error_free(err);
+            g_object_unref(src);
+        }, bm);
 }
 
-static void onExportHTMLResponse(GtkDialog* dialog, int response, BrayaBookmarks* bm) {
-    if (response == GTK_RESPONSE_ACCEPT) {
-        GtkFileChooser* chooser = GTK_FILE_CHOOSER(dialog);
-        GFile* file = gtk_file_chooser_get_file(chooser);
-        char* filepath = g_file_get_path(file);
-        bm->exportToHTML(filepath);
-        g_free(filepath);
-        g_object_unref(file);
-    }
-    gtk_window_destroy(GTK_WINDOW(dialog));
-}
-
-static void onImportChromeClicked(GtkButton* button, BrayaBookmarks* bm) {
-    GtkWidget* fileDialog = gtk_file_chooser_dialog_new(
-        "Import from Chrome", nullptr, GTK_FILE_CHOOSER_ACTION_OPEN,
-        "Cancel", GTK_RESPONSE_CANCEL, "Import", GTK_RESPONSE_ACCEPT, nullptr
-    );
-    g_signal_connect(fileDialog, "response", G_CALLBACK(onImportChromeResponse), bm);
-    gtk_widget_show(fileDialog);
-}
-
-static void onImportFirefoxClicked(GtkButton* button, BrayaBookmarks* bm) {
-    GtkWidget* fileDialog = gtk_file_chooser_dialog_new(
-        "Import from Firefox", nullptr, GTK_FILE_CHOOSER_ACTION_OPEN,
-        "Cancel", GTK_RESPONSE_CANCEL, "Import", GTK_RESPONSE_ACCEPT, nullptr
-    );
-    g_signal_connect(fileDialog, "response", G_CALLBACK(onImportFirefoxResponse), bm);
-    gtk_widget_show(fileDialog);
-}
-
-static void onImportHTMLClicked(GtkButton* button, BrayaBookmarks* bm) {
-    GtkWidget* fileDialog = gtk_file_chooser_dialog_new(
-        "Import from HTML", nullptr, GTK_FILE_CHOOSER_ACTION_OPEN,
-        "Cancel", GTK_RESPONSE_CANCEL, "Import", GTK_RESPONSE_ACCEPT, nullptr
-    );
-    g_signal_connect(fileDialog, "response", G_CALLBACK(onImportHTMLResponse), bm);
-    gtk_widget_show(fileDialog);
-}
-
-static void onExportHTMLClicked(GtkButton* button, BrayaBookmarks* bm) {
-    GtkWidget* fileDialog = gtk_file_chooser_dialog_new(
-        "Export to HTML", nullptr, GTK_FILE_CHOOSER_ACTION_SAVE,
-        "Cancel", GTK_RESPONSE_CANCEL, "Export", GTK_RESPONSE_ACCEPT, nullptr
-    );
-    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(fileDialog), "bookmarks.html");
-    g_signal_connect(fileDialog, "response", G_CALLBACK(onExportHTMLResponse), bm);
-    gtk_widget_show(fileDialog);
+static void onExportHTMLClicked(GtkButton*, BrayaBookmarks* bm) {
+    GtkFileDialog* fd = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(fd, "Export to HTML");
+    gtk_file_dialog_set_initial_name(fd, "bookmarks.html");
+    gtk_file_dialog_save(fd, nullptr, nullptr,
+        [](GObject* src, GAsyncResult* res, gpointer data) {
+            GError* err = nullptr;
+            GFile* file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(src), res, &err);
+            if (file) {
+                char* path = g_file_get_path(file);
+                static_cast<BrayaBookmarks*>(data)->exportToHTML(path);
+                g_free(path);
+                g_object_unref(file);
+            }
+            if (err) g_error_free(err);
+            g_object_unref(src);
+        }, bm);
 }
 
 static void onImportExportClose(GtkDialog* dialog, int response, gpointer data) {
@@ -2215,40 +2203,32 @@ bool BrayaBookmarks::importFromFirefox(const std::string& filepath) {
 }
 
 void BrayaBookmarks::showImportExportDialog(GtkWindow* parent) {
-    GtkWidget* dialog = gtk_dialog_new_with_buttons(
-        "Import/Export Bookmarks",
-        parent,
-        GTK_DIALOG_MODAL,
-        "Close",
-        GTK_RESPONSE_CLOSE,
-        nullptr
-    );
+    GtkWidget* dialog = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(dialog), "Import/Export Bookmarks");
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 380, -1);
 
-    GtkWidget* contentArea = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_start(box, 20);
     gtk_widget_set_margin_end(box, 20);
     gtk_widget_set_margin_top(box, 20);
     gtk_widget_set_margin_bottom(box, 20);
 
-    // Import section
     GtkWidget* importLabel = gtk_label_new(nullptr);
     gtk_label_set_markup(GTK_LABEL(importLabel), "<b>Import Bookmarks</b>");
     gtk_widget_set_halign(importLabel, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(box), importLabel);
 
     GtkWidget* importBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-
-    GtkWidget* importChromeBtn = gtk_button_new_with_label("From Chrome");
+    GtkWidget* importChromeBtn  = gtk_button_new_with_label("From Chrome");
     GtkWidget* importFirefoxBtn = gtk_button_new_with_label("From Firefox");
-    GtkWidget* importHTMLBtn = gtk_button_new_with_label("From HTML");
-
+    GtkWidget* importHTMLBtn    = gtk_button_new_with_label("From HTML");
     gtk_box_append(GTK_BOX(importBox), importChromeBtn);
     gtk_box_append(GTK_BOX(importBox), importFirefoxBtn);
     gtk_box_append(GTK_BOX(importBox), importHTMLBtn);
     gtk_box_append(GTK_BOX(box), importBox);
 
-    // Export section
     GtkWidget* exportLabel = gtk_label_new(nullptr);
     gtk_label_set_markup(GTK_LABEL(exportLabel), "<b>Export Bookmarks</b>");
     gtk_widget_set_halign(exportLabel, GTK_ALIGN_START);
@@ -2257,14 +2237,17 @@ void BrayaBookmarks::showImportExportDialog(GtkWindow* parent) {
     GtkWidget* exportBtn = gtk_button_new_with_label("Export to HTML");
     gtk_box_append(GTK_BOX(box), exportBtn);
 
-    gtk_box_append(GTK_BOX(contentArea), box);
+    GtkWidget* closeBtn = gtk_button_new_with_label("Close");
+    gtk_widget_add_css_class(closeBtn, "pill");
+    gtk_widget_set_halign(closeBtn, GTK_ALIGN_END);
+    gtk_box_append(GTK_BOX(box), closeBtn);
 
-    // Connect button signals
-    g_signal_connect(importChromeBtn, "clicked", G_CALLBACK(onImportChromeClicked), this);
+    g_signal_connect(importChromeBtn,  "clicked", G_CALLBACK(onImportChromeClicked),  this);
     g_signal_connect(importFirefoxBtn, "clicked", G_CALLBACK(onImportFirefoxClicked), this);
-    g_signal_connect(importHTMLBtn, "clicked", G_CALLBACK(onImportHTMLClicked), this);
-    g_signal_connect(exportBtn, "clicked", G_CALLBACK(onExportHTMLClicked), this);
-    g_signal_connect(dialog, "response", G_CALLBACK(onImportExportClose), nullptr);
+    g_signal_connect(importHTMLBtn,    "clicked", G_CALLBACK(onImportHTMLClicked),    this);
+    g_signal_connect(exportBtn,        "clicked", G_CALLBACK(onExportHTMLClicked),    this);
+    g_signal_connect_swapped(closeBtn, "clicked", G_CALLBACK(gtk_window_destroy), dialog);
 
-    gtk_widget_show(dialog);
+    gtk_window_set_child(GTK_WINDOW(dialog), box);
+    gtk_window_present(GTK_WINDOW(dialog));
 }

@@ -19,11 +19,13 @@ class TabGroup;
 class BrayaPasswordManager;
 class BrayaExtensionManager;
 class BrayaAdBlocker;
+class BrayaCommandPalette;
 
 class BrayaWindow {
 public:
-    BrayaWindow(GtkApplication* app);
+    BrayaWindow(GtkApplication* app, bool isPrivate = false);
     ~BrayaWindow();
+    void openPrivateWindow();
     
     GtkWidget* getWindow() { return window; }
     void show();
@@ -101,6 +103,7 @@ private:
     void updateSecurityIndicator(const std::string& url);
     long getMemoryUsage();
     void updateMemoryIndicator();
+    std::string generateHomePageHtml();
     
     // UI Components
     GtkWidget* window;
@@ -128,9 +131,22 @@ private:
     GtkWidget* downloadsBtn;
     GtkWidget* adBlockerShieldBtn;
     GtkWidget* memoryLabel;
+    GtkWidget* zoomLabel;
 
     GtkCssProvider* cssProvider;
     guint memoryTimerSourceId;
+
+    // Private / incognito mode
+    bool m_isPrivate;
+    GtkApplication* m_app;
+    WebKitNetworkSession* m_privateSession;
+
+    // Zoom: persisted per domain
+    std::map<std::string, double> m_zoomLevels;
+    void adjustZoom(double delta);
+    void resetZoom();
+    void applyZoomForUrl(const std::string& url);
+    void updateZoomLabel();
 
     // Split view state
     bool isSplitView;
@@ -171,9 +187,11 @@ private:
     std::unique_ptr<BrayaBookmarks> bookmarksManager;
     std::unique_ptr<BrayaPasswordManager> passwordManager;
     std::unique_ptr<BrayaAdBlocker> adBlocker;
+    std::unique_ptr<BrayaCommandPalette> commandPalette;
 
     // Password Manager
     void showPasswordManager();
+    void showSiteSettings(BrayaTab* tab);
     
     // Callbacks
     static void onNewTabClicked(GtkWidget* widget, gpointer data);

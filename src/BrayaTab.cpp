@@ -13,23 +13,33 @@
 #include <jsc/jsc.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
-BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, BrayaExtensionManager* extMgr)
+BrayaTab::BrayaTab(int id, const char* url, BrayaPasswordManager* passwordMgr, BrayaExtensionManager* extMgr, WebKitNetworkSession* networkSession)
     : id(id), url(url ? url : "about:braya"), title("New Tab"), isLoading(false),
       favicon(nullptr), tabButton(nullptr), passwordManager(passwordMgr), extensionManager(extMgr),
       userContentManager(nullptr), pinned(false), muted(false), readerMode(false),
       suspended(false), cachedFavicon(nullptr), deferredSetupSource(0) {
 
-    // Create per-tab UserContentManager to avoid handler name conflicts
-    // Each tab needs its own manager to register message handlers independently
     userContentManager = webkit_user_content_manager_new();
-    webView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
-                                            "user-content-manager", userContentManager,
-                                            nullptr));
+    if (networkSession) {
+        webView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                                               "user-content-manager", userContentManager,
+                                               "network-session", networkSession,
+                                               nullptr));
+    } else {
+        webView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                                               "user-content-manager", userContentManager,
+                                               nullptr));
+    }
     
     // Enable developer tools
     WebKitSettings* settings = webkit_web_view_get_settings(webView);
     webkit_settings_set_enable_developer_extras(settings, TRUE);
     webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+
+    // Use a Chrome UA so sites like Google don't trigger bot/CAPTCHA detection
+    webkit_settings_set_user_agent(settings,
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36");
 
     // 🚀 Performance: Enable hardware acceleration
     // Use NEVER to force software rendering (fixes YUV/jumbled video on Intel GPU)
@@ -456,8 +466,8 @@ void BrayaTab::updateButton() {
     }
 }
 
-void BrayaTab::onWebProcessCrashed(WebKitWebView* webView, gpointer userData) {
-    std::cerr << "💥 WebKit web process crashed!" << std::endl;
+void BrayaTab::onWebProcessCrashed(WebKitWebView* webView, WebKitWebProcessTerminationReason reason, gpointer userData) {
+    std::cerr << "WebKit web process terminated (reason=" << reason << ")" << std::endl;
 
     if (!userData) return;
     BrayaTab* tab = static_cast<BrayaTab*>(userData);
@@ -2036,6 +2046,11 @@ void BrayaTab::resume() {
     WebKitSettings* settings = webkit_web_view_get_settings(webView);
     webkit_settings_set_enable_developer_extras(settings, TRUE);
     webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+
+    // Use a Chrome UA so sites like Google don't trigger bot/CAPTCHA detection
+    webkit_settings_set_user_agent(settings,
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36");
     // Store tab reference on webView so timer callbacks can safely retrieve it
     g_object_set_data(G_OBJECT(webView), "braya-tab", this);
 

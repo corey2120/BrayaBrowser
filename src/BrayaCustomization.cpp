@@ -438,30 +438,29 @@ GtkWidget* BrayaCustomization::createColorPicker(const std::string& label, std::
     gtk_widget_set_hexpand(lbl, TRUE);
     gtk_box_append(GTK_BOX(box), lbl);
 
-    GtkWidget* btn = gtk_color_button_new();
+    GtkColorDialog* colorDialog = gtk_color_dialog_new();
+    GtkWidget* btn = gtk_color_dialog_button_new(colorDialog);
+    g_object_unref(colorDialog);
 
     // Parse and set current color
     GdkRGBA color;
     if (gdk_rgba_parse(&color, colorVar->c_str())) {
-        gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(btn), &color);
+        gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(btn), &color);
     }
 
-    // Connect color change signal
+    // Connect color change signal (notify::rgba fires when user picks a color)
     g_object_set_data(G_OBJECT(btn), "color-var", colorVar);
-    g_signal_connect(btn, "color-set", G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
-        std::string* colorVar = (std::string*)g_object_get_data(G_OBJECT(button), "color-var");
-        GdkRGBA rgba;
-        gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &rgba);
+    g_signal_connect(btn, "notify::rgba", G_CALLBACK(+[](GObject* button, GParamSpec*, gpointer) {
+        std::string* colorVar = (std::string*)g_object_get_data(button, "color-var");
+        const GdkRGBA* rgba = gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(button));
+        if (!rgba) return;
 
-        // Convert RGBA to hex string
         char hex[8];
         snprintf(hex, sizeof(hex), "#%02x%02x%02x",
-                 (int)(rgba.red * 255),
-                 (int)(rgba.green * 255),
-                 (int)(rgba.blue * 255));
+                 (int)(rgba->red * 255),
+                 (int)(rgba->green * 255),
+                 (int)(rgba->blue * 255));
         *colorVar = hex;
-
-        std::cout << "✓ Color updated to: " << hex << std::endl;
     }), nullptr);
 
     gtk_box_append(GTK_BOX(box), btn);

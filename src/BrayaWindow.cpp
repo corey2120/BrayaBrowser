@@ -12,6 +12,7 @@
 #include "extensions/ExtensionInstaller.h"
 #include "extensions/BrayaExtensionAPI.h"
 #include "adblocker/BrayaAdBlocker.h"
+#include "BrayaCommandPalette.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -20,6 +21,8 @@
 #include <vector>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <map>
+#include <algorithm>
 #include <jsc/jsc.h>
 #include <json-glib/json-glib.h>
 
@@ -259,9 +262,10 @@ static void on_extension_button_clicked(GtkButton* button, gpointer data) {
     }
 }
 
-BrayaWindow::BrayaWindow(GtkApplication* app)
+BrayaWindow::BrayaWindow(GtkApplication* app, bool isPrivate)
     : activeTabIndex(-1), nextTabId(1), showBookmarksBar(true), nextGroupId(1),
       isSplitView(false), splitHorizontal(true), activeTabIndexPane2(-1),
+      m_isPrivate(isPrivate), m_app(app), m_privateSession(nullptr),
       settings(std::make_unique<BrayaSettings>()),
       history(std::make_unique<BrayaHistory>()),
       downloads(std::make_unique<BrayaDownloads>()),
@@ -269,6 +273,7 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
       passwordManager(std::make_unique<BrayaPasswordManager>()),
       extensionManager(std::make_unique<BrayaExtensionManager>()),
       adBlocker(std::make_unique<BrayaAdBlocker>()),
+      commandPalette(std::make_unique<BrayaCommandPalette>()),
       cssProvider(nullptr),
       statusLabel(nullptr),
       statusBar(nullptr),
@@ -277,7 +282,12 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
       window(nullptr),
       bookmarksBar(nullptr),
       memoryLabel(nullptr),
+      zoomLabel(nullptr),
       memoryTimerSourceId(0) {
+
+    if (m_isPrivate) {
+        m_privateSession = webkit_network_session_new_ephemeral();
+    }
     
     g_print("Creating Braya window...\n");
     
@@ -434,7 +444,17 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
     memoryTimerSourceId = g_timeout_add_seconds(10, [](gpointer data) -> gboolean {
         BrayaWindow* window = static_cast<BrayaWindow*>(data);
         window->updateMemoryIndicator();
-        return G_SOURCE_CONTINUE;  // Keep running
+        return G_SOURCE_CONTINUE;
+    }, this);
+
+    // Ad-blocker filter auto-update: check once per day while browser is running
+    g_timeout_add_seconds(86400, [](gpointer data) -> gboolean {
+        BrayaWindow* window = static_cast<BrayaWindow*>(data);
+        if (window->adBlocker && window->adBlocker->isEnabled()) {
+            std::cout << "Checking ad-blocker filter list updates..." << std::endl;
+            window->adBlocker->updateFilterLists();
+        }
+        return G_SOURCE_CONTINUE;
     }, this);
 
     // Pass extension manager to settings so it can manage extensions
@@ -679,6 +699,28 @@ BrayaWindow::BrayaWindow(GtkApplication* app)
         window->saveSession();
         return FALSE;  // Allow window to close
     }), this);
+
+    // ── Command Palette setup ────────────────────────────────────────────────
+    commandPalette->setHistory(history.get());
+    commandPalette->setBookmarks(bookmarksManager.get());
+    commandPalette->setNavigateCallback([this](const std::string& url) {
+        navigateTo(url.c_str());
+    });
+
+    // Register built-in commands
+    commandPalette->addCommand("📄", "New Tab",           "Open a new tab",                    [this]{ createTab(); });
+    commandPalette->addCommand("⚙️", "Settings",          "Open settings window",              [this]{ if (settings) settings->show(GTK_WINDOW(window)); });
+    commandPalette->addCommand("🕒", "History",           "Browse your browsing history",      [this]{ showHistory(); });
+    commandPalette->addCommand("⬇️", "Downloads",         "View downloads",                    [this]{ showDownloads(); });
+    commandPalette->addCommand("🔖", "Bookmarks Manager", "Open the bookmarks manager",        [this]{ if (bookmarksManager) bookmarksManager->showBookmarksManager(GTK_WINDOW(window)); });
+    commandPalette->addCommand("🌙", "Toggle Dark Mode",  "Switch to the Dark theme",          [this]{ if (settings) { settings->setTheme(BrayaSettings::DARK);       applyTheme(0); } });
+    commandPalette->addCommand("☀️", "Toggle Light Mode", "Switch to the Light theme",         [this]{ if (settings) { settings->setTheme(BrayaSettings::LIGHT);      applyTheme(1); } });
+    commandPalette->addCommand("🏭", "Industrial Theme",  "Switch to the Industrial theme",    [this]{ if (settings) { settings->setTheme(BrayaSettings::INDUSTRIAL); applyTheme(2); } });
+    commandPalette->addCommand("📐", "Toggle Sidebar",    "Show or hide the tab sidebar",      [this]{ gboolean vis = gtk_widget_get_visible(sidebar); gtk_widget_set_visible(sidebar, !vis); });
+    commandPalette->addCommand("🔍", "Find in Page",      "Search for text on the page",       [this]{ showFindBar(); });
+    commandPalette->addCommand("📸", "Take Screenshot",   "Save a screenshot",                 [this]{ takeScreenshot(); });
+    commandPalette->addCommand("📖", "Reader Mode",       "Toggle distraction-free reading",   [this]{ toggleReaderMode(); });
+    commandPalette->addCommand("🏠", "Home",              "Navigate to home page",             [this]{ if (settings) navigateTo(settings->getHomePage().c_str()); });
 
     g_print("Braya window initialization complete!\n");
 }
@@ -1125,6 +1167,13 @@ void BrayaWindow::createNavbar() {
 
     gtk_box_append(GTK_BOX(urlBox), urlEntry);
 
+    // Zoom indicator — hidden when at 100%
+    zoomLabel = gtk_label_new("");
+    gtk_widget_add_css_class(zoomLabel, "zoom-label");
+    gtk_widget_set_visible(zoomLabel, FALSE);
+    gtk_widget_set_valign(zoomLabel, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(urlBox), zoomLabel);
+
     gtk_header_bar_set_title_widget(GTK_HEADER_BAR(headerbar), urlBox);
     
     // Right side box for all right controls
@@ -1281,7 +1330,8 @@ void BrayaWindow::createStatusBar() {
 
 // Tab management
 void BrayaWindow::createTab(const char* url) {
-    auto tab = std::make_unique<BrayaTab>(nextTabId++, url, passwordManager.get(), extensionManager.get());
+    BrayaPasswordManager* pwMgr = m_isPrivate ? nullptr : passwordManager.get();
+    auto tab = std::make_unique<BrayaTab>(nextTabId++, url, pwMgr, extensionManager.get(), m_privateSession);
 
     // Set up extension installation callback for automatic installation from web pages
     tab->setExtensionInstallCallback([this](const std::string& extensionUrl, const std::string& downloadUrl) {
@@ -1306,17 +1356,10 @@ void BrayaWindow::createTab(const char* url) {
                 std::cerr << "✗ Extension installation failed: " << message << std::endl;
 
                 // Show error notification to user
-                GtkWidget* dialog = gtk_message_dialog_new(
-                    GTK_WINDOW(window),
-                    GTK_DIALOG_MODAL,
-                    GTK_MESSAGE_ERROR,
-                    GTK_BUTTONS_OK,
-                    "Extension Installation Failed"
-                );
-                gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                    "%s", message.c_str());
-                gtk_window_present(GTK_WINDOW(dialog));
-                g_signal_connect(dialog, "response", G_CALLBACK(gtk_window_destroy), nullptr);
+                GtkAlertDialog* alert = gtk_alert_dialog_new("Extension Installation Failed");
+                gtk_alert_dialog_set_detail(alert, message.c_str());
+                gtk_alert_dialog_show(alert, GTK_WINDOW(window));
+                g_object_unref(alert);
             }
         });
     });
@@ -1441,9 +1484,9 @@ void BrayaWindow::createTab(const char* url) {
         "} "
         ".tab-close-button:hover { background: #ff3c3c; }"
     );
-    gtk_style_context_add_provider(gtk_widget_get_style_context(closeBtn),
-                                   GTK_STYLE_PROVIDER(btnProvider),
-                                   GTK_STYLE_PROVIDER_PRIORITY_USER);
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(),
+                                               GTK_STYLE_PROVIDER(btnProvider),
+                                               GTK_STYLE_PROVIDER_PRIORITY_USER);
     g_object_unref(btnProvider);
     
     gtk_widget_set_size_request(closeBtn, 14, 14);  // Very small
@@ -1695,7 +1738,7 @@ void BrayaWindow::createTab(const char* url) {
                             gtk_box_append(GTK_BOX(box), picture);
 
                             gtk_popover_set_child(GTK_POPOVER(popover), box);
-                            gtk_widget_show(popover);
+                            gtk_popover_popup(GTK_POPOVER(popover));
 
                             g_object_unref(texture);
                         }
@@ -1765,9 +1808,11 @@ void BrayaWindow::createTab(const char* url) {
                 // Add to history
                 const gchar* url = webkit_web_view_get_uri(webView);
                 const gchar* title = webkit_web_view_get_title(webView);
-                if (url && window->history) {
+                if (url && window->history && !window->m_isPrivate) {
                     window->history->addEntry(url, title ? title : "");
                 }
+                // Restore saved zoom for this domain
+                if (url) window->applyZoomForUrl(url);
             }
         }), this);
 
@@ -1881,20 +1926,11 @@ void BrayaWindow::closeTab(int index) {
         // 🛡️ CRASH FIX: Mark tab as destroying to prevent callbacks from executing
         destroyingTabs.insert(tabBtn);
 
-        // 🛡️ PHASE 2 FIX: Block signals first to prevent new events from being queued
-        guint blockedCount = g_signal_handlers_block_matched(tabBtn, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
-
-        // Process any pending GTK events that are already queued
-        // This ensures callbacks in flight complete before we disconnect
-        while (g_main_context_pending(nullptr)) {
-            g_main_context_iteration(nullptr, FALSE);
-        }
-
-        // Now safe to disconnect - all queued events have been processed
-        g_signal_handlers_disconnect_matched(tabBtn, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
+        // Disconnect all signals synchronously — no main loop pumping (avoids re-entrancy)
+        guint blockedCount = g_signal_handlers_disconnect_matched(tabBtn, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
 
         if (blockedCount > 0) {
-            std::cout << "🛡️  Blocked and disconnected " << blockedCount << " signal handlers" << std::endl;
+            std::cout << "🛡️  Disconnected " << blockedCount << " signal handlers" << std::endl;
         }
 
         // Cancel any pending timer
@@ -1916,21 +1952,7 @@ void BrayaWindow::closeTab(int index) {
         GtkWidget* closeBtn = GTK_WIDGET(g_object_get_data(G_OBJECT(tabBtn), "close-button"));
         if (closeBtn && GTK_IS_WIDGET(closeBtn)) {
             // Find and clear data on all gesture controllers
-            GListModel* controllers = gtk_widget_observe_controllers(closeBtn);
-            guint n_controllers = g_list_model_get_n_items(controllers);
-            for (guint i = 0; i < n_controllers; i++) {
-                GtkEventController* controller = GTK_EVENT_CONTROLLER(g_list_model_get_item(controllers, i));
-                if (controller && GTK_IS_GESTURE_CLICK(controller)) {
-                    // Clear the gesture's object data to prevent callbacks from accessing invalid pointers
-                    g_object_set_data(G_OBJECT(controller), "window", nullptr);
-                    g_object_set_data(G_OBJECT(controller), "tab-button", nullptr);
-                }
-                if (controller) {
-                    g_object_unref(controller);
-                }
-            }
-
-            // Disconnect all signals
+            // Disconnect all signals — simplest safe approach
             g_signal_handlers_disconnect_matched(closeBtn, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, nullptr);
         }
 
@@ -2206,11 +2228,16 @@ void BrayaWindow::saveSession() {
 }
 
 void BrayaWindow::restoreSession() {
+    if (settings && !settings->getRestoreSession()) {
+        std::cout << "Session restore disabled in settings" << std::endl;
+        return;
+    }
+
     std::string sessionPath = std::string(g_get_home_dir()) + "/.config/braya-browser/session.json";
 
     // Check if session file exists
     if (!g_file_test(sessionPath.c_str(), G_FILE_TEST_EXISTS)) {
-        std::cout << "ℹ️  No saved session found" << std::endl;
+        std::cout << "No saved session found" << std::endl;
         return;
     }
 
@@ -2408,9 +2435,11 @@ void BrayaWindow::navigateTo(const char* url) {
     try {
         std::string finalUrl = url;
         
-        // Handle about:braya - load home page
+        // Handle about:braya - generate dynamic home page
         if (finalUrl == "about:braya") {
-            finalUrl = "file://" + getResourcePath("home.html");
+            std::string html = generateHomePageHtml();
+            webkit_web_view_load_html(tab->getWebView(), html.c_str(), "about:braya");
+            return;
         }
         // Add https:// if needed
         else if (finalUrl.find("://") == std::string::npos) {
@@ -2544,6 +2573,38 @@ void BrayaWindow::showBookmarksManager() {
 }
 
 void BrayaWindow::show() {
+    if (m_isPrivate) {
+        gtk_window_set_title(GTK_WINDOW(window), "Braya — Private Window");
+        gtk_widget_add_css_class(window, "private-window");
+        gtk_widget_add_css_class(sidebar, "private-sidebar");
+
+        GtkCssProvider* privateCss = gtk_css_provider_new();
+        gtk_css_provider_load_from_string(privateCss, R"CSS(
+.private-window .url-box { background: rgba(120,0,180,0.12); border-radius: 8px; }
+.private-sidebar { background: #130820; }
+.private-window headerbar { background: #1a0b28; }
+.zoom-label {
+    font-size: 12px; font-weight: 600; color: #aaa;
+    background: rgba(255,255,255,0.08); border-radius: 4px;
+    padding: 2px 6px; margin: 0 4px;
+}
+)CSS");
+        gtk_style_context_add_provider_for_display(
+            gdk_display_get_default(),
+            GTK_STYLE_PROVIDER(privateCss),
+            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        g_object_unref(privateCss);
+    } else {
+        GtkCssProvider* zoomCss = gtk_css_provider_new();
+        gtk_css_provider_load_from_string(zoomCss,
+            ".zoom-label { font-size:12px; font-weight:600; color:#aaa;"
+            " background:rgba(255,255,255,0.08); border-radius:4px; padding:2px 6px; margin:0 4px; }");
+        gtk_style_context_add_provider_for_display(
+            gdk_display_get_default(),
+            GTK_STYLE_PROVIDER(zoomCss),
+            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        g_object_unref(zoomCss);
+    }
     gtk_window_present(GTK_WINDOW(window));
 }
 
@@ -2849,6 +2910,16 @@ void BrayaWindow::onWindowCloseClicked(GtkWidget* widget, gpointer data) {
 gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
     BrayaWindow* window = static_cast<BrayaWindow*>(data);
     
+    if ((state & GDK_CONTROL_MASK) && keyval == GDK_KEY_space) {
+        if (window->commandPalette) {
+            if (window->commandPalette->isVisible())
+                window->commandPalette->hide();
+            else
+                window->commandPalette->show(GTK_WINDOW(window->window));
+        }
+        return TRUE;
+    }
+
     if (state & GDK_CONTROL_MASK) {
         if (keyval == GDK_KEY_t) {
             window->createTab();
@@ -2885,12 +2956,24 @@ gboolean BrayaWindow::onKeyPress(GtkEventControllerKey* controller, guint keyval
         } else if (keyval == GDK_KEY_d || keyval == GDK_KEY_D) {
             window->onAddBookmarkClicked(NULL, window);
             return TRUE;
+        } else if (keyval == GDK_KEY_equal || keyval == GDK_KEY_plus) {
+            window->adjustZoom(+0.1);
+            return TRUE;
+        } else if (keyval == GDK_KEY_minus) {
+            window->adjustZoom(-0.1);
+            return TRUE;
+        } else if (keyval == GDK_KEY_0) {
+            window->resetZoom();
+            return TRUE;
         }
     }
-    
+
     // Ctrl+Shift shortcuts
     if ((state & GDK_CONTROL_MASK) && (state & GDK_SHIFT_MASK)) {
-        if (keyval == GDK_KEY_S || keyval == GDK_KEY_s) {
+        if (keyval == GDK_KEY_N || keyval == GDK_KEY_n) {
+            window->openPrivateWindow();
+            return TRUE;
+        } else if (keyval == GDK_KEY_S || keyval == GDK_KEY_s) {
             window->takeScreenshot();
             return TRUE;
         } else if (keyval == GDK_KEY_D || keyval == GDK_KEY_d) {
@@ -3129,6 +3212,23 @@ void BrayaWindow::onTabRightClick(GtkGestureClick* gesture, int n_press, double 
         gtk_box_append(GTK_BOX(box), separator2);
     }
 
+    // Site Settings button
+    GtkWidget* siteSettingsBtn = gtk_button_new_with_label("⚙ Site Settings");
+    g_object_set_data(G_OBJECT(siteSettingsBtn), "window", window);
+    g_object_set_data(G_OBJECT(siteSettingsBtn), "tab", tab);
+    g_object_set_data(G_OBJECT(siteSettingsBtn), "menu", menu);
+    g_signal_connect(siteSettingsBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer) {
+        BrayaWindow* w = static_cast<BrayaWindow*>(g_object_get_data(G_OBJECT(btn), "window"));
+        BrayaTab* t = static_cast<BrayaTab*>(g_object_get_data(G_OBJECT(btn), "tab"));
+        GtkWidget* m = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "menu"));
+        gtk_popover_popdown(GTK_POPOVER(m));
+        if (w && t) w->showSiteSettings(t);
+    }), nullptr);
+    gtk_box_append(GTK_BOX(box), siteSettingsBtn);
+
+    GtkWidget* separator3 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_append(GTK_BOX(box), separator3);
+
     // Create group button
     GtkWidget* createBtn = gtk_button_new_with_label("📁 Create New Group");
     g_object_set_data(G_OBJECT(createBtn), "window", window);
@@ -3186,9 +3286,9 @@ void BrayaWindow::onTabRightClick(GtkGestureClick* gesture, int n_press, double 
             GtkCssProvider* provider = gtk_css_provider_new();
             std::string css = "button { background: " + std::string(colors[i]) + "; color: white; font-weight: bold; }";
             gtk_css_provider_load_from_string(provider, css.c_str());
-            gtk_style_context_add_provider(gtk_widget_get_style_context(colorBtn),
-                                          GTK_STYLE_PROVIDER(provider),
-                                          GTK_STYLE_PROVIDER_PRIORITY_USER);
+            gtk_style_context_add_provider_for_display(gdk_display_get_default(),
+                                                       GTK_STYLE_PROVIDER(provider),
+                                                       GTK_STYLE_PROVIDER_PRIORITY_USER);
             g_object_unref(provider);
 
             g_object_set_data(G_OBJECT(colorBtn), "nameEntry", nameEntry);
@@ -3262,6 +3362,177 @@ void BrayaWindow::showPasswordManager() {
     if (settings) {
         settings->showTab(GTK_WINDOW(window), "passwords");
     }
+}
+
+void BrayaWindow::showSiteSettings(BrayaTab* tab) {
+    if (!tab) return;
+
+    std::string pageUrl = tab->getUrl();
+    std::string domain;
+    {
+        size_t protoEnd = pageUrl.find("://");
+        if (protoEnd != std::string::npos) {
+            size_t start = protoEnd + 3;
+            size_t end = pageUrl.find('/', start);
+            domain = pageUrl.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        } else {
+            domain = pageUrl;
+        }
+    }
+
+    GtkWidget* dlg = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(dlg), ("Site Settings — " + domain).c_str());
+    gtk_window_set_modal(GTK_WINDOW(dlg), TRUE);
+    gtk_window_set_transient_for(GTK_WINDOW(dlg), GTK_WINDOW(window));
+    gtk_window_set_default_size(GTK_WINDOW(dlg), 360, -1);
+
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(box, 20);
+    gtk_widget_set_margin_end(box, 20);
+    gtk_widget_set_margin_top(box, 20);
+    gtk_widget_set_margin_bottom(box, 20);
+
+    // Domain header
+    GtkWidget* domainLabel = gtk_label_new(nullptr);
+    std::string markup = "<b>" + domain + "</b>";
+    gtk_label_set_markup(GTK_LABEL(domainLabel), markup.c_str());
+    gtk_label_set_xalign(GTK_LABEL(domainLabel), 0);
+    gtk_box_append(GTK_BOX(box), domainLabel);
+
+    gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    // Helper: create a row with label + switch
+    auto makeRow = [](const char* title, const char* subtitle, GtkWidget* ctrl) -> GtkWidget* {
+        GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+        GtkWidget* lblBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        gtk_widget_set_hexpand(lblBox, TRUE);
+        GtkWidget* lbl = gtk_label_new(title);
+        gtk_label_set_xalign(GTK_LABEL(lbl), 0);
+        gtk_box_append(GTK_BOX(lblBox), lbl);
+        if (subtitle && *subtitle) {
+            GtkWidget* sub = gtk_label_new(subtitle);
+            gtk_label_set_xalign(GTK_LABEL(sub), 0);
+            gtk_widget_add_css_class(sub, "dim-label");
+            gtk_box_append(GTK_BOX(lblBox), sub);
+        }
+        gtk_box_append(GTK_BOX(row), lblBox);
+        gtk_box_append(GTK_BOX(row), ctrl);
+        return row;
+    };
+
+    // --- JavaScript toggle ---
+    WebKitSettings* wkSettings = webkit_web_view_get_settings(tab->getWebView());
+    bool jsEnabled = webkit_settings_get_enable_javascript(wkSettings);
+
+    GtkWidget* jsSwitch = gtk_switch_new();
+    gtk_switch_set_active(GTK_SWITCH(jsSwitch), jsEnabled);
+    g_object_set_data(G_OBJECT(jsSwitch), "webview", tab->getWebView());
+    g_signal_connect(jsSwitch, "state-set", G_CALLBACK(+[](GtkSwitch* sw, gboolean state, gpointer data) -> gboolean {
+        WebKitWebView* wv = static_cast<WebKitWebView*>(data);
+        WebKitSettings* s = webkit_web_view_get_settings(wv);
+        webkit_settings_set_enable_javascript(s, state);
+        return FALSE;
+    }), tab->getWebView());
+    gtk_box_append(GTK_BOX(box), makeRow("JavaScript", "Enable or disable JS for this tab", jsSwitch));
+
+    // --- Ad-blocker whitelist toggle ---
+    if (adBlocker && !domain.empty()) {
+        bool whitelisted = adBlocker->isWhitelisted(domain);
+        GtkWidget* abSwitch = gtk_switch_new();
+        gtk_switch_set_active(GTK_SWITCH(abSwitch), !whitelisted); // ON = blocking active
+
+        struct AbCtx { BrayaAdBlocker* ab; std::string domain; };
+        auto* ctx = new AbCtx();
+        ctx->ab = adBlocker.get();
+        ctx->domain = domain;
+        g_signal_connect(abSwitch, "state-set",
+            G_CALLBACK(+[](GtkSwitch*, gboolean state, gpointer data) -> gboolean {
+                auto* ctx = static_cast<AbCtx*>(data);
+                if (state) ctx->ab->removeFromWhitelist(ctx->domain);
+                else       ctx->ab->addToWhitelist(ctx->domain);
+                return FALSE;
+            }), ctx);
+        g_object_set_data_full(G_OBJECT(abSwitch), "ctx", ctx, [](gpointer p) {
+            delete static_cast<AbCtx*>(p);
+        });
+        gtk_box_append(GTK_BOX(box), makeRow("Block ads & trackers",
+            "Toggle ad-blocker for this site", abSwitch));
+    }
+
+    // --- Cookie policy (informational + clear button) ---
+    GtkWidget* clearCookiesBtn = gtk_button_new_with_label("Clear Site Cookies");
+    gtk_widget_add_css_class(clearCookiesBtn, "destructive-action");
+    struct CookieCtx { WebKitWebView* wv; std::string domain; };
+    auto* cCtx = new CookieCtx();
+    cCtx->wv = tab->getWebView();
+    cCtx->domain = domain;
+    g_signal_connect(clearCookiesBtn, "clicked",
+        G_CALLBACK(+[](GtkButton*, gpointer data) {
+            auto* ctx = static_cast<CookieCtx*>(data);
+            WebKitNetworkSession* session = webkit_web_view_get_network_session(ctx->wv);
+            if (!session) return;
+            WebKitWebsiteDataManager* mgr = webkit_network_session_get_website_data_manager(session);
+            webkit_website_data_manager_remove(mgr,
+                WEBKIT_WEBSITE_DATA_COOKIES,
+                nullptr, nullptr, nullptr, nullptr);
+        }), cCtx);
+    g_object_set_data_full(G_OBJECT(clearCookiesBtn), "ctx", cCtx, [](gpointer p) {
+        delete static_cast<CookieCtx*>(p);
+    });
+    gtk_box_append(GTK_BOX(box), makeRow("Cookies", "Remove stored cookies for this site", clearCookiesBtn));
+
+    // --- Zoom row ---
+    double zoom = webkit_web_view_get_zoom_level(tab->getWebView());
+    std::string zoomStr = std::to_string((int)(zoom * 100)) + "%";
+    GtkWidget* zoomBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget* zoomOut = gtk_button_new_with_label("−");
+    GtkWidget* zoomLbl = gtk_label_new(zoomStr.c_str());
+    gtk_widget_set_size_request(zoomLbl, 50, -1);
+    gtk_label_set_xalign(GTK_LABEL(zoomLbl), 0.5);
+    GtkWidget* zoomIn = gtk_button_new_with_label("+");
+    gtk_box_append(GTK_BOX(zoomBox), zoomOut);
+    gtk_box_append(GTK_BOX(zoomBox), zoomLbl);
+    gtk_box_append(GTK_BOX(zoomBox), zoomIn);
+
+    struct ZoomCtx { WebKitWebView* wv; GtkWidget* lbl; };
+    auto* zCtx = new ZoomCtx{tab->getWebView(), zoomLbl};
+
+    auto updateZoomLbl = [](ZoomCtx* z) {
+        double zl = webkit_web_view_get_zoom_level(z->wv);
+        std::string s = std::to_string((int)(zl * 100)) + "%";
+        gtk_label_set_text(GTK_LABEL(z->lbl), s.c_str());
+    };
+
+    g_signal_connect(zoomIn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+        auto* z = static_cast<ZoomCtx*>(data);
+        double cur = webkit_web_view_get_zoom_level(z->wv);
+        webkit_web_view_set_zoom_level(z->wv, std::min(cur + 0.1, 3.0));
+        double newZ = webkit_web_view_get_zoom_level(z->wv);
+        std::string s = std::to_string((int)(newZ * 100)) + "%";
+        gtk_label_set_text(GTK_LABEL(z->lbl), s.c_str());
+    }), zCtx);
+    g_signal_connect(zoomOut, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+        auto* z = static_cast<ZoomCtx*>(data);
+        double cur = webkit_web_view_get_zoom_level(z->wv);
+        webkit_web_view_set_zoom_level(z->wv, std::max(cur - 0.1, 0.25));
+        double newZ = webkit_web_view_get_zoom_level(z->wv);
+        std::string s = std::to_string((int)(newZ * 100)) + "%";
+        gtk_label_set_text(GTK_LABEL(z->lbl), s.c_str());
+    }), zCtx);
+    g_object_set_data_full(G_OBJECT(zoomIn), "zctx", zCtx, [](gpointer p) {
+        delete static_cast<ZoomCtx*>(p);
+    });
+    gtk_box_append(GTK_BOX(box), makeRow("Zoom", nullptr, zoomBox));
+
+    // Close button
+    gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    GtkWidget* closeBtn = gtk_button_new_with_label("Done");
+    gtk_widget_set_halign(closeBtn, GTK_ALIGN_END);
+    g_signal_connect_swapped(closeBtn, "clicked", G_CALLBACK(gtk_window_destroy), dlg);
+    gtk_box_append(GTK_BOX(box), closeBtn);
+
+    gtk_window_set_child(GTK_WINDOW(dlg), box);
+    gtk_window_present(GTK_WINDOW(dlg));
 }
 
 // Quick Wins Feature Implementations
@@ -3865,16 +4136,16 @@ void BrayaWindow::updateExtensionButtons() {
             std::cout << "    Loading icon from: " << iconPath << std::endl;
 
             GError* error = nullptr;
-            GdkPixbuf* pixbuf = gdk_pixbuf_new_from_file_at_scale(iconPath.c_str(), 16, 16, TRUE, &error);
+            GdkTexture* tex = gdk_texture_new_from_filename(iconPath.c_str(), &error);
 
-            if (pixbuf) {
-                GtkWidget* iconImage = gtk_image_new_from_pixbuf(pixbuf);
+            if (tex) {
+                GtkWidget* iconImage = gtk_image_new_from_paintable(GDK_PAINTABLE(tex));
+                gtk_image_set_pixel_size(GTK_IMAGE(iconImage), 16);
+                g_object_unref(tex);
                 gtk_button_set_child(GTK_BUTTON(btn), iconImage);
-                g_object_unref(pixbuf);
-                std::cout << "    ✓ Icon loaded successfully" << std::endl;
             } else {
                 if (error) {
-                    std::cerr << "    ✗ Failed to load icon: " << error->message << std::endl;
+                    std::cerr << "    Failed to load icon: " << error->message << std::endl;
                     g_error_free(error);
                 }
                 // Fallback to emoji if icon loading fails
@@ -3908,24 +4179,40 @@ void BrayaWindow::updateExtensionButtons() {
 
 // 📊 Memory indicator implementation
 long BrayaWindow::getMemoryUsage() {
-    FILE* file = fopen("/proc/self/status", "r");
+    // smaps_rollup gives Private_Dirty + Private_Clean = memory this process actually owns,
+    // excluding shared library pages that would inflate VmRSS.
+    FILE* file = fopen("/proc/self/smaps_rollup", "r");
     if (!file) {
-        return -1;
+        // Fallback: VmRSS from status (less accurate but always present)
+        file = fopen("/proc/self/status", "r");
+        if (!file) return -1;
+
+        char line[128];
+        long rss = 0;
+        while (fgets(line, sizeof(line), file)) {
+            if (strncmp(line, "VmRSS:", 6) == 0) {
+                sscanf(line + 6, "%ld", &rss);
+                break;
+            }
+        }
+        fclose(file);
+        return rss;
     }
 
     char line[128];
-    long rss = 0;
-
+    long privateKB = 0;
     while (fgets(line, sizeof(line), file)) {
-        if (strncmp(line, "VmRSS:", 6) == 0) {
-            // Extract the number from "VmRSS:  123456 kB"
-            sscanf(line + 6, "%ld", &rss);
-            break;
+        long val = 0;
+        if (strncmp(line, "Private_Clean:", 14) == 0) {
+            sscanf(line + 14, "%ld", &val);
+            privateKB += val;
+        } else if (strncmp(line, "Private_Dirty:", 14) == 0) {
+            sscanf(line + 14, "%ld", &val);
+            privateKB += val;
         }
     }
-
     fclose(file);
-    return rss;  // Returns RSS in KB
+    return privateKB > 0 ? privateKB : -1;
 }
 
 void BrayaWindow::updateMemoryIndicator() {
@@ -3975,4 +4262,291 @@ void BrayaWindow::updateMemoryIndicator() {
     }
 
     gtk_label_set_text(GTK_LABEL(memoryLabel), memText);
+}
+
+std::string BrayaWindow::generateHomePageHtml() {
+    if (m_isPrivate) {
+        return R"HTML(<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Private Tab</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+background:#0d0015;color:#e0d0f0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.card{text-align:center;max-width:460px;padding:48px 32px}
+.icon{font-size:56px;margin-bottom:20px}
+h1{font-size:24px;font-weight:600;margin-bottom:12px;color:#c8a0e8}
+p{font-size:14px;color:#907aaa;line-height:1.6;margin-bottom:8px}
+.note{font-size:12px;color:#6a5280;margin-top:20px;padding:12px 16px;
+background:rgba(180,0,255,0.06);border-radius:8px;border:1px solid rgba(180,0,255,0.15)}
+</style></head><body>
+<div class="card">
+<div class="icon">🕵️</div>
+<h1>You're browsing privately</h1>
+<p>Braya won't save your history, cookies, or site data after you close this window.</p>
+<p>Your activity may still be visible to your employer, school, or internet provider.</p>
+<div class="note">Downloads and bookmarks are not saved in private windows.</div>
+</div></body></html>)HTML";
+    }
+
+    // Theme colors
+    std::string bg       = "#0a0f14";
+    std::string bgCard   = "rgba(255,255,255,0.03)";
+    std::string border   = "rgba(255,255,255,0.08)";
+    std::string accent   = "#00d9ff";
+    std::string text     = "#e0e6ed";
+    std::string textMute = "#9ca3b0";
+
+    if (settings) {
+        BrayaSettings::Theme theme = settings->getTheme();
+        if (theme == BrayaSettings::LIGHT) {
+            bg       = "#f5f5f5";
+            bgCard   = "rgba(0,0,0,0.04)";
+            border   = "rgba(0,0,0,0.1)";
+            accent   = "#0077cc";
+            text     = "#1a1a2e";
+            textMute = "#555566";
+        } else if (theme == BrayaSettings::INDUSTRIAL) {
+            bg       = "#1a1a1a";
+            bgCard   = "rgba(255,255,255,0.04)";
+            border   = "rgba(255,140,0,0.2)";
+            accent   = "#ff8c00";
+            text     = "#e8e0d0";
+            textMute = "#a09080";
+        }
+    }
+
+    // Search engine
+    std::string searchUrl = "https://duckduckgo.com/?q=";
+    if (settings) {
+        std::string engine = settings->getSearchEngine();
+        if (engine == "Google")      searchUrl = "https://www.google.com/search?q=";
+        else if (engine == "Bing")   searchUrl = "https://www.bing.com/search?q=";
+        else if (engine == "Brave")  searchUrl = "https://search.brave.com/search?q=";
+    }
+
+    // Speed dial: top 8 domains by visit count
+    struct SpeedDialEntry { std::string url; std::string title; int visits; };
+    std::vector<SpeedDialEntry> speedDial;
+
+    if (history) {
+        std::vector<HistoryEntry> entries = history->getHistory(500);
+        std::map<std::string, SpeedDialEntry> domainMap;
+
+        for (const auto& e : entries) {
+            if (e.url.empty() || e.url.find("about:") == 0 || e.url.find("file://") == 0)
+                continue;
+
+            // Extract domain
+            std::string domain = e.url;
+            size_t schemeEnd = domain.find("://");
+            if (schemeEnd != std::string::npos) domain = domain.substr(schemeEnd + 3);
+            size_t pathStart = domain.find('/');
+            if (pathStart != std::string::npos) domain = domain.substr(0, pathStart);
+            // Strip www.
+            if (domain.substr(0, 4) == "www.") domain = domain.substr(4);
+
+            std::string key = domain;
+            if (domainMap.find(key) == domainMap.end()) {
+                // Base URL for the site
+                std::string baseUrl = e.url.substr(0, e.url.find("://") + 3) + domain;
+                domainMap[key] = {baseUrl, e.title.empty() ? domain : e.title, 1};
+            } else {
+                domainMap[key].visits++;
+            }
+        }
+
+        for (auto& kv : domainMap) speedDial.push_back(kv.second);
+        std::sort(speedDial.begin(), speedDial.end(),
+                  [](const SpeedDialEntry& a, const SpeedDialEntry& b) { return a.visits > b.visits; });
+        if (speedDial.size() > 8) speedDial.resize(8);
+    }
+
+    // Recent bookmarks (non-folder, up to 8)
+    std::vector<Bookmark> recentBookmarks;
+    if (bookmarksManager) {
+        std::vector<Bookmark> all = bookmarksManager->getBookmarks();
+        for (const auto& bm : all) {
+            if (!bm.isFolder && !bm.url.empty()) {
+                recentBookmarks.push_back(bm);
+                if (recentBookmarks.size() >= 8) break;
+            }
+        }
+    }
+
+    // HTML escaping helper
+    auto esc = [](const std::string& s) {
+        std::string out;
+        for (char c : s) {
+            if      (c == '&')  out += "&amp;";
+            else if (c == '<')  out += "&lt;";
+            else if (c == '>')  out += "&gt;";
+            else if (c == '"')  out += "&quot;";
+            else                out += c;
+        }
+        return out;
+    };
+
+    std::ostringstream html;
+    html << R"(<!DOCTYPE html><html><head><meta charset="UTF-8"><title>New Tab</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  background:)" << bg << R"(;color:)" << text << R"(;min-height:100vh;padding:0 20px 40px}
+.container{max-width:860px;margin:0 auto}
+.hero{text-align:center;padding:56px 0 40px}
+.clock{font-size:52px;font-weight:200;letter-spacing:-2px;margin-bottom:6px;color:)" << text << R"(}
+.date{font-size:14px;color:)" << textMute << R"(;margin-bottom:32px}
+.search-form{display:flex;gap:0;max-width:560px;margin:0 auto}
+.search-input{flex:1;padding:12px 20px;font-size:15px;background:)" << bgCard << R"(;
+  border:1px solid )" << border << R"(;border-right:none;border-radius:8px 0 0 8px;
+  color:)" << text << R"(;outline:none}
+.search-input:focus{border-color:)" << accent << R"(}
+.search-btn{padding:12px 20px;background:)" << accent << R"(;color:#0a0f14;
+  border:none;border-radius:0 8px 8px 0;cursor:pointer;font-weight:600;font-size:15px}
+.search-btn:hover{opacity:0.85}
+.section{margin-bottom:32px}
+.section-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+  color:)" << textMute << R"(;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.grid-8{grid-template-columns:repeat(4,1fr)}
+@media(max-width:600px){.grid{grid-template-columns:repeat(2,1fr)}}
+.card{background:)" << bgCard << R"(;border:1px solid )" << border << R"(;border-radius:10px;
+  padding:16px 12px;text-align:center;text-decoration:none;color:)" << text << R"(;
+  transition:border-color .15s,transform .15s;cursor:pointer;display:block}
+.card:hover{border-color:)" << accent << R"(;transform:translateY(-2px)}
+.card-icon{width:32px;height:32px;margin:0 auto 8px;border-radius:6px;
+  background:)" << bgCard << R"(;display:flex;align-items:center;justify-content:center;
+  font-size:18px;overflow:hidden}
+.card-icon img{width:32px;height:32px;border-radius:6px}
+.card-name{font-size:12px;font-weight:500;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty{color:)" << textMute << R"(;font-size:13px;text-align:center;padding:20px 0}
+</style></head><body><div class="container">
+<div class="hero">
+<div class="clock" id="clock">--:--</div>
+<div class="date" id="date"></div>
+)"
+    "<form class=\"search-form\" onsubmit=\"doSearch(event)\">"
+    "<input class=\"search-input\" id=\"q\" type=\"text\" placeholder=\"Search or enter address...\" autocomplete=\"off\" autofocus>"
+    "<button class=\"search-btn\" type=\"submit\">Go</button>"
+    "</form></div>";
+
+    // Speed dial
+    html << R"(<div class="section"><div class="section-title">Top Sites</div><div class="grid grid-8">)";
+    if (speedDial.empty()) {
+        html << R"(<div class="empty" style="grid-column:1/-1">Start browsing to see your top sites here</div>)";
+    } else {
+        for (const auto& site : speedDial) {
+            std::string faviconUrl = site.url + "/favicon.ico";
+            std::string initial = site.title.empty() ? "?" : std::string(1, (char)std::toupper((unsigned char)site.title[0]));
+            html << R"(<a class="card" href=")" << esc(site.url) << R"(">)"
+                 << R"(<div class="card-icon"><img src=")" << esc(faviconUrl)
+                 << R"(" onerror="this.parentNode.innerHTML=')" << esc(initial) << R"('">)</div>)"
+                 << R"(<div class="card-name">)" << esc(site.title) << R"(</div></a>)";
+        }
+    }
+    html << R"(</div></div>)";
+
+    // Recent bookmarks
+    if (!recentBookmarks.empty()) {
+        html << R"(<div class="section"><div class="section-title">Bookmarks</div><div class="grid">)";
+        for (const auto& bm : recentBookmarks) {
+            std::string faviconUrl = bm.url + "/favicon.ico";
+            size_t ss = bm.url.find("://");
+            if (ss != std::string::npos) {
+                size_t ps = bm.url.find('/', ss + 3);
+                faviconUrl = bm.url.substr(0, ps == std::string::npos ? bm.url.size() : ps) + "/favicon.ico";
+            }
+            std::string initial = bm.name.empty() ? "?" : std::string(1, (char)std::toupper((unsigned char)bm.name[0]));
+            html << R"(<a class="card" href=")" << esc(bm.url) << R"(">)"
+                 << R"(<div class="card-icon"><img src=")" << esc(faviconUrl)
+                 << R"(" onerror="this.parentNode.innerHTML=')" << esc(initial) << R"('">)</div>)"
+                 << R"(<div class="card-name">)" << esc(bm.name) << R"(</div></a>)";
+        }
+        html << R"(</div></div>)";
+    }
+
+    html << R"(</div>
+<script>
+var SEARCH_URL = ")" << searchUrl << R"(";
+function doSearch(e){
+  e.preventDefault();
+  var q=document.getElementById('q').value.trim();
+  if(!q)return;
+  var url=(q.indexOf('://')!==-1||(/^[a-z0-9-]+\.[a-z]{2,}/i.test(q)&&q.indexOf(' ')===-1))
+          ?q:SEARCH_URL+encodeURIComponent(q);
+  window.location.href=url;
+}
+function tick(){
+  var n=new Date();
+  var h=String(n.getHours()).padStart(2,'0');
+  var m=String(n.getMinutes()).padStart(2,'0');
+  document.getElementById('clock').textContent=h+':'+m;
+  var days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('date').textContent=days[n.getDay()]+', '+months[n.getMonth()]+' '+n.getDate()+', '+n.getFullYear();
+}
+tick();setInterval(tick,1000);
+document.getElementById('q').focus();
+</script></body></html>)";
+
+    return html.str();
+}
+
+void BrayaWindow::openPrivateWindow() {
+    BrayaWindow* pw = new BrayaWindow(m_app, true);
+    pw->show();
+}
+
+static std::string domainFromUrl(const std::string& url) {
+    std::string d = url;
+    size_t s = d.find("://");
+    if (s != std::string::npos) d = d.substr(s + 3);
+    size_t p = d.find('/');
+    if (p != std::string::npos) d = d.substr(0, p);
+    if (d.substr(0, 4) == "www.") d = d.substr(4);
+    return d;
+}
+
+void BrayaWindow::adjustZoom(double delta) {
+    if (activeTabIndex < 0 || activeTabIndex >= (int)tabs.size()) return;
+    WebKitWebView* wv = tabs[activeTabIndex]->getWebView();
+    double z = webkit_web_view_get_zoom_level(wv);
+    z = std::max(0.25, std::min(5.0, z + delta));
+    webkit_web_view_set_zoom_level(wv, z);
+    std::string domain = domainFromUrl(tabs[activeTabIndex]->getUrl());
+    if (!domain.empty()) m_zoomLevels[domain] = z;
+    updateZoomLabel();
+}
+
+void BrayaWindow::resetZoom() {
+    if (activeTabIndex < 0 || activeTabIndex >= (int)tabs.size()) return;
+    WebKitWebView* wv = tabs[activeTabIndex]->getWebView();
+    webkit_web_view_set_zoom_level(wv, 1.0);
+    std::string domain = domainFromUrl(tabs[activeTabIndex]->getUrl());
+    if (!domain.empty()) m_zoomLevels.erase(domain);
+    updateZoomLabel();
+}
+
+void BrayaWindow::applyZoomForUrl(const std::string& url) {
+    if (activeTabIndex < 0 || activeTabIndex >= (int)tabs.size()) return;
+    std::string domain = domainFromUrl(url);
+    auto it = m_zoomLevels.find(domain);
+    double z = (it != m_zoomLevels.end()) ? it->second : 1.0;
+    webkit_web_view_set_zoom_level(tabs[activeTabIndex]->getWebView(), z);
+    updateZoomLabel();
+}
+
+void BrayaWindow::updateZoomLabel() {
+    if (!zoomLabel || !GTK_IS_WIDGET(zoomLabel)) return;
+    if (activeTabIndex < 0 || activeTabIndex >= (int)tabs.size()) {
+        gtk_widget_set_visible(zoomLabel, FALSE);
+        return;
+    }
+    double z = webkit_web_view_get_zoom_level(tabs[activeTabIndex]->getWebView());
+    if (std::abs(z - 1.0) < 0.01) {
+        gtk_widget_set_visible(zoomLabel, FALSE);
+    } else {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d%%", (int)(z * 100));
+        gtk_label_set_text(GTK_LABEL(zoomLabel), buf);
+        gtk_widget_set_visible(zoomLabel, TRUE);
+    }
 }

@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cstring>
 #include <memory>
+#include <sys/utsname.h>
 #include <json-glib/json-glib.h>
 
 namespace {
@@ -34,7 +35,7 @@ BrayaSettings::BrayaSettings()
     : theme(DARK), fontSize(13), fontFamily("Sans"), showBookmarks(true),
       blockTrackers(true), blockAds(false), httpsOnly(false),
       enableJavaScript(true), enableWebGL(true), enablePlugins(false),
-      showTabPreviews(true), memoryIndicatorEnabled(true),
+      showTabPreviews(true), memoryIndicatorEnabled(true), restoreSession(true),
       downloadPath(""), homePage("about:braya"), searchEngine("DuckDuckGo"),
       dialog(nullptr), notebook(nullptr), searchEntry(nullptr), navList(nullptr),
       webContext(nullptr),
@@ -201,31 +202,23 @@ void BrayaSettings::showTab(GtkWindow* parent, const std::string& tabName) {
 
 void BrayaSettings::createDialog(GtkWindow* parent) {
     dialog = gtk_window_new();
-    gtk_window_set_title(GTK_WINDOW(dialog), "Braya Settings");
-    gtk_window_set_default_size(GTK_WINDOW(dialog), 900, 650);
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 860, 600);
     gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
     gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
-    
-    GtkWidget* mainBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_window_set_child(GTK_WINDOW(dialog), mainBox);
-    
-    // Header with search
-    GtkWidget* headerBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_widget_set_margin_start(headerBox, 20);
-    gtk_widget_set_margin_end(headerBox, 20);
-    gtk_widget_set_margin_top(headerBox, 20);
-    gtk_widget_set_margin_bottom(headerBox, 15);
-    gtk_box_append(GTK_BOX(mainBox), headerBox);
-    
+
+    // Native header bar — title + search on the right
+    GtkWidget* headerBar = gtk_header_bar_new();
+    gtk_header_bar_set_show_title_buttons(GTK_HEADER_BAR(headerBar), TRUE);
+    gtk_window_set_titlebar(GTK_WINDOW(dialog), headerBar);
+
     GtkWidget* titleLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(titleLabel), "<span size='x-large' weight='bold'>⚙️ Settings</span>");
-    gtk_box_append(GTK_BOX(headerBox), titleLabel);
-    
-    // Search entry
+    gtk_label_set_markup(GTK_LABEL(titleLabel), "<b>Settings</b>");
+    gtk_header_bar_set_title_widget(GTK_HEADER_BAR(headerBar), titleLabel);
+
     searchEntry = gtk_search_entry_new();
-    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(searchEntry), "Search settings...");
-    gtk_widget_set_size_request(searchEntry, 250, -1);
-    gtk_box_append(GTK_BOX(headerBox), searchEntry);
+    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(searchEntry), "Search settings…");
+    gtk_widget_set_size_request(searchEntry, 220, -1);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(headerBar), searchEntry);
 
     g_signal_connect(searchEntry, "search-changed", G_CALLBACK(+[](GtkSearchEntry* entry, gpointer data) {
         auto* settings = static_cast<BrayaSettings*>(data);
@@ -237,223 +230,119 @@ void BrayaSettings::createDialog(GtkWindow* parent) {
     g_signal_connect(searchEntry, "stop-search", G_CALLBACK(+[](GtkSearchEntry* entry, gpointer data) {
         auto* settings = static_cast<BrayaSettings*>(data);
         gtk_editable_set_text(GTK_EDITABLE(entry), "");
-        if (settings) {
-            settings->navigateToSection("general");
-        }
+        if (settings) settings->navigateToSection("general");
     }), this);
 
-    GtkWidget* hero = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-    gtk_widget_set_margin_start(hero, 20);
-    gtk_widget_set_margin_end(hero, 20);
-    gtk_widget_set_margin_bottom(hero, 10);
-    gtk_box_append(GTK_BOX(mainBox), hero);
+    // Main content: sidebar | separator | stack
+    GtkWidget* mainBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_window_set_child(GTK_WINDOW(dialog), mainBox);
 
-    GtkWidget* heroTitle = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(heroTitle), "<span size='large' weight='bold'>Design Braya your way</span>");
-    gtk_widget_set_halign(heroTitle, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(hero), heroTitle);
-
-    GtkWidget* heroSubtitle = gtk_label_new("Switch themes, tighten privacy, and fine‑tune every aspect of your browser experience.");
-    gtk_widget_add_css_class(heroSubtitle, "dim-label");
-    gtk_widget_set_halign(heroSubtitle, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(hero), heroSubtitle);
-
-    GtkWidget* heroActions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_box_append(GTK_BOX(hero), heroActions);
-
-    auto addHeroShortcut = [&](const char* label, const char* targetSection) {
-        GtkWidget* button = gtk_button_new_with_label(label);
-        gtk_widget_add_css_class(button, "pill");
-        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
-            auto* settings = static_cast<BrayaSettings*>(data);
-            const char* sectionId = static_cast<const char*>(g_object_get_data(G_OBJECT(btn), "section-id"));
-            if (settings && sectionId) {
-                settings->navigateToSection(sectionId);
-            }
-        }), this);
-        g_object_set_data_full(G_OBJECT(button), "section-id", g_strdup(targetSection), g_free);
-        gtk_box_append(GTK_BOX(heroActions), button);
-    };
-
-    addHeroShortcut("🎨 Appearance Studio", "appearance");
-    addHeroShortcut("🔌 Manage Extensions", "extensions");
-    addHeroShortcut("🛡️ Privacy & Security", "privacy");
-    
-    gtk_box_append(GTK_BOX(mainBox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-    
-    // Content area: Sidebar + Stack
-    GtkWidget* contentBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_vexpand(contentBox, TRUE);
-    gtk_box_append(GTK_BOX(mainBox), contentBox);
-    
-    struct NavSection {
-        const char* id;
-        const char* title;
-        const char* icon;
-        const char* subtitle;
-    };
+    struct NavSection { const char* id; const char* title; const char* icon; };
     const std::vector<NavSection> navSections = {
-        {"general", "General", "🏠", "Startup, downloads, home"},
-        {"appearance", "Appearance", "🎨", "Themes, fonts, layouts"},
-        {"privacy", "Privacy", "🔒", "Tracking protection"},
-        {"security", "Security", "🛡️", "HTTPS & warnings"},
-        {"passwords", "Passwords", "🔑", "Saved logins & import/export"},
-        {"adblocker", "Ad-Blocker", "🚫", "Filters & shields"},
-        {"extensions", "Extensions", "🔌", "Manage add-ons"},
-        {"advanced", "Advanced", "⚡", "Web features & about"}
+        {"general",    "General",            "🏠"},
+        {"appearance", "Appearance",         "🎨"},
+        {"privacy",    "Privacy & Security", "🔒"},
+        {"security",   "Security",           "🛡️"},
+        {"passwords",  "Passwords",          "🔑"},
+        {"extensions", "Extensions",         "🔌"},
+        {"advanced",   "Advanced",           "⚡"},
     };
-    
-    // Create stack first
+
+    // Build stack first so nav rows can reference it
     notebook = gtk_stack_new();
     gtk_widget_set_hexpand(notebook, TRUE);
     gtk_widget_set_vexpand(notebook, TRUE);
     gtk_stack_set_transition_type(GTK_STACK(notebook), GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
-    gtk_stack_set_transition_duration(GTK_STACK(notebook), 200);
-    
-    // Add all pages to stack
-    gtk_stack_add_titled(GTK_STACK(notebook), createGeneralTab(), "general", "🏠 General");
-    gtk_stack_add_titled(GTK_STACK(notebook), createAppearanceTab(), "appearance", "🎨 Appearance");
-    gtk_stack_add_titled(GTK_STACK(notebook), createPrivacyTab(), "privacy", "🔒 Privacy");
-    gtk_stack_add_titled(GTK_STACK(notebook), createSecurityTab(), "security", "🛡️ Security");
-    gtk_stack_add_titled(GTK_STACK(notebook), createPasswordsTab(), "passwords", "🔑 Passwords");
-    gtk_stack_add_titled(GTK_STACK(notebook), createAdBlockerTab(), "adblocker", "🛡️ Ad-Blocker");
-    gtk_stack_add_titled(GTK_STACK(notebook), createExtensionsTab(), "extensions", "🔌 Extensions");
-    gtk_stack_add_titled(GTK_STACK(notebook), createAdvancedTab(), "advanced", "⚡ Advanced");
+    gtk_stack_set_transition_duration(GTK_STACK(notebook), 180);
+
+    gtk_stack_add_named(GTK_STACK(notebook), createGeneralTab(),    "general");
+    gtk_stack_add_named(GTK_STACK(notebook), createAppearanceTab(), "appearance");
+    gtk_stack_add_named(GTK_STACK(notebook), createPrivacyTab(),    "privacy");
+    gtk_stack_add_named(GTK_STACK(notebook), createSecurityTab(),   "security");
+    gtk_stack_add_named(GTK_STACK(notebook), createPasswordsTab(),  "passwords");
+    gtk_stack_add_named(GTK_STACK(notebook), createExtensionsTab(), "extensions");
+    gtk_stack_add_named(GTK_STACK(notebook), createAdvancedTab(),   "advanced");
     buildSearchIndex();
-    
-    // Navigation rail
-    GtkWidget* navContainer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_set_size_request(navContainer, 260, -1);
-    gtk_widget_set_margin_start(navContainer, 10);
-    gtk_widget_set_margin_end(navContainer, 10);
-    gtk_widget_set_margin_top(navContainer, 10);
-    gtk_widget_set_margin_bottom(navContainer, 10);
-    gtk_widget_add_css_class(navContainer, "settings-nav");
-    gtk_box_append(GTK_BOX(contentBox), navContainer);
 
-    GtkWidget* navTitle = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(navTitle), "<span weight='bold' size='large'>Control Center</span>");
-    gtk_widget_set_halign(navTitle, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(navContainer), navTitle);
-
-    GtkWidget* navSubtitle = gtk_label_new("Jump between sections instantly.");
-    gtk_widget_add_css_class(navSubtitle, "dim-label");
-    gtk_widget_set_halign(navSubtitle, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(navContainer), navSubtitle);
+    // Sidebar nav
+    GtkWidget* navBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_size_request(navBox, 210, -1);
+    gtk_widget_add_css_class(navBox, "settings-nav");
+    gtk_box_append(GTK_BOX(mainBox), navBox);
 
     navList = gtk_list_box_new();
     gtk_widget_add_css_class(navList, "navigation-sidebar");
     gtk_widget_set_vexpand(navList, TRUE);
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(navList), GTK_SELECTION_SINGLE);
     gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(navList), TRUE);
-    gtk_box_append(GTK_BOX(navContainer), navList);
+    gtk_box_append(GTK_BOX(navBox), navList);
 
     navRowMap.clear();
     for (const auto& section : navSections) {
         GtkWidget* row = gtk_list_box_row_new();
-        GtkWidget* rowBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-        gtk_widget_set_margin_start(rowBox, 12);
-        gtk_widget_set_margin_end(rowBox, 12);
+        GtkWidget* rowBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+        gtk_widget_set_margin_start(rowBox, 14);
+        gtk_widget_set_margin_end(rowBox, 14);
         gtk_widget_set_margin_top(rowBox, 10);
         gtk_widget_set_margin_bottom(rowBox, 10);
 
         GtkWidget* iconLabel = gtk_label_new(section.icon);
-        gtk_widget_set_halign(iconLabel, GTK_ALIGN_CENTER);
-        gtk_widget_set_valign(iconLabel, GTK_ALIGN_START);
         gtk_box_append(GTK_BOX(rowBox), iconLabel);
 
-        GtkWidget* textBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-        gtk_widget_set_hexpand(textBox, TRUE);
         GtkWidget* titleLabel = gtk_label_new(section.title);
         gtk_widget_set_halign(titleLabel, GTK_ALIGN_START);
-        gtk_box_append(GTK_BOX(textBox), titleLabel);
+        gtk_widget_set_hexpand(titleLabel, TRUE);
+        gtk_box_append(GTK_BOX(rowBox), titleLabel);
 
-        if (section.subtitle && strlen(section.subtitle) > 0) {
-            GtkWidget* subtitleLabel = gtk_label_new(section.subtitle);
-            gtk_widget_add_css_class(subtitleLabel, "dim-label");
-            gtk_widget_set_halign(subtitleLabel, GTK_ALIGN_START);
-            gtk_box_append(GTK_BOX(textBox), subtitleLabel);
-        }
-
-        gtk_box_append(GTK_BOX(rowBox), textBox);
         gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), rowBox);
         g_object_set_data_full(G_OBJECT(row), "section-id", g_strdup(section.id), g_free);
         navRowMap[section.id] = GTK_LIST_BOX_ROW(row);
         gtk_list_box_append(GTK_LIST_BOX(navList), row);
     }
 
-    g_signal_connect(navList, "row-selected", G_CALLBACK(+[](GtkListBox* list, GtkListBoxRow* row, gpointer data) {
+    g_signal_connect(navList, "row-selected", G_CALLBACK(+[](GtkListBox*, GtkListBoxRow* row, gpointer data) {
         if (!row) return;
         auto* settings = static_cast<BrayaSettings*>(data);
         const char* sectionId = static_cast<const char*>(g_object_get_data(G_OBJECT(row), "section-id"));
-        if (settings && sectionId) {
-            settings->navigateToSection(sectionId);
-        }
+        if (settings && sectionId) settings->navigateToSection(sectionId);
     }), this);
     selectNavRow("general");
 
-    GtkWidget* navSpacer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_widget_set_vexpand(navSpacer, TRUE);
-    gtk_box_append(GTK_BOX(navContainer), navSpacer);
-
-    GtkWidget* themeStudioBtn = gtk_button_new_with_label("🎨 Open Theme Studio");
-    gtk_widget_add_css_class(themeStudioBtn, "suggested-action");
-    g_signal_connect(themeStudioBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
-        auto* settings = static_cast<BrayaSettings*>(data);
-        if (!settings) return;
-        settings->navigateToSection("appearance");
-        settings->selectNavRow("appearance");
-        static BrayaCustomization* customization = nullptr;
-        if (!customization) customization = new BrayaCustomization();
-        customization->show(GTK_WINDOW(settings->dialog));
-    }), this);
-    gtk_box_append(GTK_BOX(navContainer), themeStudioBtn);
-
-    GtkWidget* shortcutsBtn = gtk_button_new_with_label("⌨️ Keyboard Shortcuts");
-    gtk_widget_add_css_class(shortcutsBtn, "flat");
-    g_signal_connect(shortcutsBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
-        auto* settings = static_cast<BrayaSettings*>(data);
-        if (!settings) return;
-        settings->navigateToSection("advanced");
-        settings->selectNavRow("advanced");
-    }), this);
-    gtk_box_append(GTK_BOX(navContainer), shortcutsBtn);
-
-    gtk_box_append(GTK_BOX(contentBox), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
-    
-    gtk_widget_set_margin_start(notebook, 10);
-    gtk_widget_set_margin_end(notebook, 10);
-    gtk_widget_set_margin_top(notebook, 10);
-    gtk_widget_set_margin_bottom(notebook, 10);
-    gtk_box_append(GTK_BOX(contentBox), notebook);
-    
-    gtk_box_append(GTK_BOX(mainBox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-    
-    // Buttons
-    GtkWidget* buttonBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_widget_set_margin_start(buttonBox, 20);
-    gtk_widget_set_margin_end(buttonBox, 20);
-    gtk_widget_set_margin_top(buttonBox, 15);
-    gtk_widget_set_margin_bottom(buttonBox, 15);
-    gtk_widget_set_halign(buttonBox, GTK_ALIGN_END);
-    gtk_box_append(GTK_BOX(mainBox), buttonBox);
-    
+    // Reset to Defaults at nav bottom
+    gtk_box_append(GTK_BOX(navBox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     GtkWidget* resetBtn = gtk_button_new_with_label("Reset to Defaults");
+    gtk_widget_set_margin_start(resetBtn, 10);
+    gtk_widget_set_margin_end(resetBtn, 10);
+    gtk_widget_set_margin_top(resetBtn, 8);
+    gtk_widget_set_margin_bottom(resetBtn, 10);
     gtk_widget_add_css_class(resetBtn, "destructive-action");
-    gtk_box_append(GTK_BOX(buttonBox), resetBtn);
-    
-    GtkWidget* spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_hexpand(spacer, TRUE);
-    gtk_box_append(GTK_BOX(buttonBox), spacer);
-    
-    GtkWidget* applyBtn = gtk_button_new_with_label("✓ Apply");
-    gtk_widget_add_css_class(applyBtn, "suggested-action");
-    g_signal_connect(applyBtn, "clicked", G_CALLBACK(onApplyClicked), this);
-    gtk_box_append(GTK_BOX(buttonBox), applyBtn);
-    
-    GtkWidget* closeBtn = gtk_button_new_with_label("Close");
-    g_signal_connect(closeBtn, "clicked", G_CALLBACK(onCloseClicked), this);
-    gtk_box_append(GTK_BOX(buttonBox), closeBtn);
+    g_signal_connect(resetBtn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+        auto* settings = static_cast<BrayaSettings*>(data);
+        if (!settings) return;
+        // Reset all settings to defaults
+        settings->theme = DARK;
+        settings->fontSize = 13;
+        settings->fontFamily = "Sans";
+        settings->showBookmarks = true;
+        settings->blockTrackers = true;
+        settings->blockAds = false;
+        settings->httpsOnly = false;
+        settings->enableJavaScript = true;
+        settings->enableWebGL = true;
+        settings->enablePlugins = false;
+        settings->showTabPreviews = true;
+        settings->searchEngine = "DuckDuckGo";
+        settings->homePage = "about:braya";
+        settings->saveSettings();
+        settings->updateUIFromSettings();
+        settings->applyTheme();
+        std::cout << "✓ Settings reset to defaults" << std::endl;
+    }), this);
+    gtk_box_append(GTK_BOX(navBox), resetBtn);
+
+    // Separator + content
+    gtk_box_append(GTK_BOX(mainBox), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
+    gtk_box_append(GTK_BOX(mainBox), notebook);
 }
 
 GtkWidget* BrayaSettings::createGeneralTab() {
@@ -472,11 +361,38 @@ GtkWidget* BrayaSettings::createGeneralTab() {
     homePageEntry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(homePageEntry), "about:braya or https://example.com");
     gtk_widget_set_hexpand(homePageEntry, TRUE);
+    g_signal_connect(homePageEntry, "activate", G_CALLBACK(+[](GtkEntry*, gpointer d) {
+        static_cast<BrayaSettings*>(d)->applySettings();
+    }), this);
+    {
+        GtkEventController* fc = gtk_event_controller_focus_new();
+        g_signal_connect(fc, "leave", G_CALLBACK(+[](GtkEventControllerFocus*, gpointer d) {
+            static_cast<BrayaSettings*>(d)->applySettings();
+        }), this);
+        gtk_widget_add_controller(homePageEntry, fc);
+    }
     gtk_box_append(GTK_BOX(startupBody), createSettingsRow("Home Page", "Shown when clicking the Home button", homePageEntry));
 
     GtkWidget* sessionSwitch = gtk_switch_new();
-    gtk_switch_set_active(GTK_SWITCH(sessionSwitch), TRUE);
+    gtk_switch_set_active(GTK_SWITCH(sessionSwitch), restoreSession);
+    g_signal_connect(sessionSwitch, "state-set", G_CALLBACK(+[](GtkSwitch* sw, gboolean state, gpointer d) -> gboolean {
+        BrayaSettings* s = static_cast<BrayaSettings*>(d);
+        s->restoreSession = state;
+        s->saveSettings();
+        return FALSE;
+    }), this);
     gtk_box_append(GTK_BOX(startupBody), createSettingsRow("Restore Session", "Reopen tabs from your last browsing session", sessionSwitch));
+
+    GtkWidget* privateBody = nullptr;
+    GtkWidget* privateCard = createSettingsCard("Private Browsing", "Browse without saving history, cookies, or site data", &privateBody);
+    gtk_box_append(GTK_BOX(box), privateCard);
+
+    GtkWidget* privateLabel = gtk_label_new("Press Ctrl+Shift+N to open a private window. "
+        "Downloads and bookmarks are not saved. Your ISP and network can still see your activity.");
+    gtk_label_set_wrap(GTK_LABEL(privateLabel), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(privateLabel), 0);
+    gtk_widget_add_css_class(privateLabel, "dim-label");
+    gtk_box_append(GTK_BOX(privateBody), privateLabel);
 
     GtkWidget* downloadsBody = nullptr;
     GtkWidget* downloadsCard = createSettingsCard("Downloads & toolbar", "Keep frequently used items close", &downloadsBody);
@@ -484,6 +400,16 @@ GtkWidget* BrayaSettings::createGeneralTab() {
 
     downloadPathEntry = gtk_entry_new();
     gtk_widget_set_hexpand(downloadPathEntry, TRUE);
+    g_signal_connect(downloadPathEntry, "activate", G_CALLBACK(+[](GtkEntry*, gpointer d) {
+        static_cast<BrayaSettings*>(d)->applySettings();
+    }), this);
+    {
+        GtkEventController* fc = gtk_event_controller_focus_new();
+        g_signal_connect(fc, "leave", G_CALLBACK(+[](GtkEventControllerFocus*, gpointer d) {
+            static_cast<BrayaSettings*>(d)->applySettings();
+        }), this);
+        gtk_widget_add_controller(downloadPathEntry, fc);
+    }
     gtk_box_append(GTK_BOX(downloadsBody), createSettingsRow("Download Location", "Files will be saved here by default", downloadPathEntry));
 
     bookmarksSwitch = gtk_switch_new();
@@ -494,13 +420,14 @@ GtkWidget* BrayaSettings::createGeneralTab() {
     GtkWidget* searchCard = createSettingsCard("Search & suggestions", "Choose how the address bar behaves", &searchBody);
     gtk_box_append(GTK_BOX(box), searchCard);
 
-    searchEngineCombo = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(searchEngineCombo), "DuckDuckGo");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(searchEngineCombo), "Google");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(searchEngineCombo), "Bing");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(searchEngineCombo), "Brave Search");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(searchEngineCombo), "Ecosia");
+    {
+        const char* engines[] = {"DuckDuckGo", "Google", "Bing", "Brave Search", "Ecosia", nullptr};
+        searchEngineCombo = gtk_drop_down_new_from_strings(engines);
+    }
     gtk_widget_set_hexpand(searchEngineCombo, TRUE);
+    g_signal_connect(searchEngineCombo, "notify::selected", G_CALLBACK(+[](GObject*, GParamSpec*, gpointer d) {
+        static_cast<BrayaSettings*>(d)->applySettings();
+    }), this);
     gtk_box_append(GTK_BOX(searchBody), createSettingsRow("Default Search Engine", "Used in the address bar and search box", searchEngineCombo));
 
     GtkWidget* suggestionsSwitch = gtk_switch_new();
@@ -523,46 +450,40 @@ GtkWidget* BrayaSettings::createAppearanceTab() {
     GtkWidget* themeCard = createSettingsCard("Themes & presets", "Blend in with your desktop or stand out", &themeBody);
     gtk_box_append(GTK_BOX(box), themeCard);
     
-    themeCombo = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(themeCombo), "🌙 Dark");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(themeCombo), "🏭 Industrial");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(themeCombo), "🎨 Custom");
+    {
+        const char* themes[] = {"Dark", "Industrial", "Custom", nullptr};
+        themeCombo = gtk_drop_down_new_from_strings(themes);
+    }
     gtk_widget_set_hexpand(themeCombo, TRUE);
-    g_signal_connect(themeCombo, "changed", G_CALLBACK(onThemeChanged), this);
+    g_signal_connect(themeCombo, "notify::selected", G_CALLBACK(onThemeChanged), this);
     gtk_box_append(GTK_BOX(themeBody), createSettingsRow("Browser Theme", "Pick the base chrome style", themeCombo));
 
-    GtkWidget* presetCombo = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "Zen (Cyan)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "Arc (Purple)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "Nord (Arctic Blue)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "Dracula (Purple/Pink)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "Tokyo Night (Blue)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "Gruvbox (Warm Yellow)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "Catppuccin (Pastel Blue)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "One Dark (VS Code)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "Solarized (Classic)");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(presetCombo), "Monokai (Cyan)");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(presetCombo), 0);
+    const char* presetItems[] = {
+        "Zen (Cyan)", "Arc (Purple)", "Nord (Arctic Blue)", "Dracula (Purple/Pink)",
+        "Tokyo Night (Blue)", "Gruvbox (Warm Yellow)", "Catppuccin (Pastel Blue)",
+        "One Dark (VS Code)", "Solarized (Classic)", "Monokai (Cyan)", nullptr
+    };
+    GtkWidget* presetCombo = gtk_drop_down_new_from_strings(presetItems);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(presetCombo), 0);
     gtk_widget_set_hexpand(presetCombo, TRUE);
 
-    static auto onPresetChanged = [](GtkComboBox* combo, gpointer user_data) {
+    static auto onPresetChanged = [](GObject* obj, GParamSpec*, gpointer) {
         static BrayaCustomization* customization = nullptr;
         if (!customization) customization = new BrayaCustomization();
 
-        int active = gtk_combo_box_get_active(combo);
         const char* presetNames[] = {
             "Zen", "Arc", "Nord", "Dracula", "Tokyo Night",
             "Gruvbox", "Catppuccin", "One Dark", "Solarized", "Monokai"
         };
-        if (active >= 0 && active < 10) {
+        guint active = gtk_drop_down_get_selected(GTK_DROP_DOWN(obj));
+        if (active < 10) {
             customization->loadPreset(presetNames[active]);
-            customization->applyTheme(GTK_WIDGET(gtk_widget_get_root(GTK_WIDGET(combo))));
+            customization->applyTheme(GTK_WIDGET(gtk_widget_get_root(GTK_WIDGET(obj))));
             customization->save();
-            std::cout << "✓ Applied and saved preset: " << presetNames[active] << std::endl;
         }
     };
 
-    g_signal_connect(presetCombo, "changed", G_CALLBACK(+onPresetChanged), this);
+    g_signal_connect(presetCombo, "notify::selected", G_CALLBACK(+onPresetChanged), this);
     gtk_box_append(GTK_BOX(themeBody), createSettingsRow("Preset Palette", "Apply curated color schemes instantly", presetCombo));
 
     GtkWidget* advancedBtn = gtk_button_new_with_label("🎨 Open Theme Studio");
@@ -580,6 +501,16 @@ GtkWidget* BrayaSettings::createAppearanceTab() {
     fontFamilyEntry = gtk_entry_new();
     gtk_widget_set_hexpand(fontFamilyEntry, TRUE);
     gtk_entry_set_placeholder_text(GTK_ENTRY(fontFamilyEntry), "Sans, Inter, etc.");
+    g_signal_connect(fontFamilyEntry, "activate", G_CALLBACK(+[](GtkEntry*, gpointer d) {
+        static_cast<BrayaSettings*>(d)->applySettings();
+    }), this);
+    {
+        GtkEventController* fc = gtk_event_controller_focus_new();
+        g_signal_connect(fc, "leave", G_CALLBACK(+[](GtkEventControllerFocus*, gpointer d) {
+            static_cast<BrayaSettings*>(d)->applySettings();
+        }), this);
+        gtk_widget_add_controller(fontFamilyEntry, fc);
+    }
     gtk_box_append(GTK_BOX(typographyBody), createSettingsRow("Font Family", "Affects tabs, sidebar, and settings", fontFamilyEntry));
     
     fontSpinner = gtk_spin_button_new_with_range(10, 24, 1);
@@ -604,103 +535,189 @@ GtkWidget* BrayaSettings::createAppearanceTab() {
 
 GtkWidget* BrayaSettings::createPrivacyTab() {
     GtkWidget* scrolled = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
+                                   GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
     gtk_widget_set_margin_start(box, 25);
     gtk_widget_set_margin_end(box, 25);
     gtk_widget_set_margin_top(box, 25);
     gtk_widget_set_margin_bottom(box, 25);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), box);
-    
+
+    // ── Ad-Blocker ────────────────────────────────────────────────────────────
+    GtkWidget* adBlockBody = nullptr;
+    GtkWidget* adBlockCard = createSettingsCard("Ad-Blocker", "uBlock Origin filter lists — blocks ads, trackers & malware", &adBlockBody);
+    gtk_box_append(GTK_BOX(box), adBlockCard);
+
+    adBlockerEnabledSwitch = gtk_switch_new();
+    gtk_switch_set_active(GTK_SWITCH(adBlockerEnabledSwitch), TRUE);
+    g_signal_connect(adBlockerEnabledSwitch, "state-set", G_CALLBACK(onAdBlockerToggled), this);
+    gtk_box_append(GTK_BOX(adBlockBody), createSettingsRow("Enable Ad-Blocker", "Turn content filtering on or off", adBlockerEnabledSwitch));
+
+    {
+        const char* levels[] = {
+            "Off", "Minimal — malware only", "Standard — ads + trackers",
+            "Strict — maximum blocking", "Custom", nullptr
+        };
+        securityLevelCombo = gtk_drop_down_new_from_strings(levels);
+    }
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(securityLevelCombo), 2);
+    g_signal_connect(securityLevelCombo, "notify::selected", G_CALLBACK(onSecurityLevelChanged), this);
+    gtk_box_append(GTK_BOX(adBlockBody), createSettingsRow("Security Level", "Preset blocking strictness", securityLevelCombo));
+
+    // Blocking features grid
+    GtkWidget* featuresBody = nullptr;
+    GtkWidget* featuresCard = createSettingsCard("Blocking features", "Fine-tune what gets blocked", &featuresBody);
+    gtk_box_append(GTK_BOX(box), featuresCard);
+
+    blockAdsCheck = gtk_check_button_new_with_label("Block Ads");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockAdsCheck), TRUE);
+    g_signal_connect(blockAdsCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
+
+    blockTrackersCheck = gtk_check_button_new_with_label("Block Trackers");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockTrackersCheck), TRUE);
+    g_signal_connect(blockTrackersCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
+
+    blockSocialCheck = gtk_check_button_new_with_label("Block Social Widgets");
+    g_signal_connect(blockSocialCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
+
+    blockCryptominersCheck = gtk_check_button_new_with_label("Block Cryptominers");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockCryptominersCheck), TRUE);
+    g_signal_connect(blockCryptominersCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
+
+    blockPopupsCheck = gtk_check_button_new_with_label("Block Pop-ups");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockPopupsCheck), TRUE);
+    g_signal_connect(blockPopupsCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
+
+    blockAutoplayCheck = gtk_check_button_new_with_label("Block Autoplay Videos");
+    g_signal_connect(blockAutoplayCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
+
+    removeCookieWarningsCheck = gtk_check_button_new_with_label("Remove Cookie Warnings");
+    g_signal_connect(removeCookieWarningsCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
+
+    blockNSFWCheck = gtk_check_button_new_with_label("Block NSFW Content");
+    g_signal_connect(blockNSFWCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
+
+    GtkWidget* featuresGrid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(featuresGrid), 10);
+    gtk_grid_set_column_spacing(GTK_GRID(featuresGrid), 20);
+    gtk_grid_attach(GTK_GRID(featuresGrid), blockAdsCheck,             0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(featuresGrid), blockTrackersCheck,        1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(featuresGrid), blockSocialCheck,          0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(featuresGrid), blockCryptominersCheck,    1, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(featuresGrid), blockPopupsCheck,          0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(featuresGrid), blockAutoplayCheck,        1, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(featuresGrid), removeCookieWarningsCheck, 0, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(featuresGrid), blockNSFWCheck,            1, 3, 1, 1);
+    gtk_box_append(GTK_BOX(featuresBody), featuresGrid);
+
+    // Import/Export for ad-blocker settings
+    GtkWidget* importExportBody = nullptr;
+    GtkWidget* importExportCard = createSettingsCard("Ad-blocker settings", "Save or restore your filter configuration", &importExportBody);
+    gtk_box_append(GTK_BOX(box), importExportCard);
+
+    GtkWidget* exportBtn = gtk_button_new_with_label("Export Settings");
+    g_signal_connect(exportBtn, "clicked", G_CALLBACK(onExportSettings), this);
+    GtkWidget* importBtn = gtk_button_new_with_label("Import Settings");
+    g_signal_connect(importBtn, "clicked", G_CALLBACK(onImportSettings), this);
+    gtk_box_append(GTK_BOX(importExportBody), createSettingsActionRow("Export", "Save filter configuration to a file", exportBtn));
+    gtk_box_append(GTK_BOX(importExportBody), createSettingsActionRow("Import", "Load a previously exported configuration", importBtn));
+
+    // ── Tracking protection ───────────────────────────────────────────────────
     GtkWidget* trackingBody = nullptr;
-    GtkWidget* trackingCard = createSettingsCard("Tracking protection", "Choose how aggressively Braya shields you", &trackingBody);
+    GtkWidget* trackingCard = createSettingsCard("Tracking protection", "Browser-level tracker signals", &trackingBody);
     gtk_box_append(GTK_BOX(box), trackingCard);
-    
+
     blockTrackersSwitch = gtk_switch_new();
+    g_signal_connect(blockTrackersSwitch, "state-set", G_CALLBACK(+[](GtkSwitch*, gboolean, gpointer d) -> gboolean {
+        static_cast<BrayaSettings*>(d)->applySettings(); return FALSE;
+    }), this);
     gtk_box_append(GTK_BOX(trackingBody), createSettingsRow("Block Trackers", "Prevent sites from following you around the web", blockTrackersSwitch));
-    
+
     blockAdsSwitch = gtk_switch_new();
-    gtk_box_append(GTK_BOX(trackingBody), createSettingsRow("Block Ads", "Use built-in blocking to stop ads and pop-ups", blockAdsSwitch));
-    
+    g_signal_connect(blockAdsSwitch, "state-set", G_CALLBACK(+[](GtkSwitch*, gboolean, gpointer d) -> gboolean {
+        static_cast<BrayaSettings*>(d)->applySettings(); return FALSE;
+    }), this);
+    gtk_box_append(GTK_BOX(trackingBody), createSettingsRow("Block Ads (legacy toggle)", "Separate from the ad-blocker engine above", blockAdsSwitch));
+
+    GtkWidget* dntSwitch = gtk_switch_new();
+    gtk_switch_set_active(GTK_SWITCH(dntSwitch), TRUE);
+    gtk_box_append(GTK_BOX(trackingBody), createSettingsRow("Send Do Not Track", "Ask websites politely not to track you", dntSwitch));
+
+    // ── Cookies & site data ───────────────────────────────────────────────────
     GtkWidget* cookiesBody = nullptr;
     GtkWidget* cookiesCard = createSettingsCard("Cookies & site data", "Clear trackers and signed-in sessions", &cookiesBody);
     gtk_box_append(GTK_BOX(box), cookiesCard);
 
-    GtkWidget* clearCookiesBtn = gtk_button_new_with_label("Clear Cookies");
-    gtk_box_append(GTK_BOX(cookiesBody), createSettingsActionRow("Cookies", "Remove all stored cookies across profiles", clearCookiesBtn));
+    GtkWidget* clearCookiesBtn = gtk_button_new_with_label("Clear");
+    gtk_box_append(GTK_BOX(cookiesBody), createSettingsActionRow("Cookies", "Remove all stored cookies", clearCookiesBtn));
 
     cookieStatusLabel = gtk_label_new("Cookies: calculating…");
     gtk_widget_add_css_class(cookieStatusLabel, "settings-row-subtitle");
     gtk_widget_set_halign(cookieStatusLabel, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(cookiesBody), cookieStatusLabel);
 
-    GtkWidget* clearStorageBtn = gtk_button_new_with_label("Clear Site Data");
-    gtk_box_append(GTK_BOX(cookiesBody), createSettingsActionRow("Site storage", "Clears cache, local storage, IndexedDB, etc.", clearStorageBtn));
+    GtkWidget* clearStorageBtn = gtk_button_new_with_label("Clear");
+    gtk_box_append(GTK_BOX(cookiesBody), createSettingsActionRow("Site storage", "Clears cache, local storage, IndexedDB", clearStorageBtn));
 
     siteDataStatusLabel = gtk_label_new("Site data: calculating…");
     gtk_widget_add_css_class(siteDataStatusLabel, "settings-row-subtitle");
     gtk_widget_set_halign(siteDataStatusLabel, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(cookiesBody), siteDataStatusLabel);
 
-    g_signal_connect(clearCookiesBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
-        auto* settings = static_cast<BrayaSettings*>(data);
-        if (!settings) return;
-        settings->clearWebsiteData(WEBKIT_WEBSITE_DATA_COOKIES, settings->cookieStatusLabel, "Cookies cleared.");
+    g_signal_connect(clearCookiesBtn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+        auto* s = static_cast<BrayaSettings*>(data);
+        s->clearWebsiteData(WEBKIT_WEBSITE_DATA_COOKIES, s->cookieStatusLabel, "Cookies cleared.");
     }), this);
-
-    g_signal_connect(clearStorageBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
-        auto* settings = static_cast<BrayaSettings*>(data);
-        if (!settings) return;
-        const WebKitWebsiteDataTypes siteTypes = static_cast<WebKitWebsiteDataTypes>(WEBKIT_WEBSITE_DATA_ALL & ~WEBKIT_WEBSITE_DATA_COOKIES);
-        settings->clearWebsiteData(siteTypes, settings->siteDataStatusLabel, "Site data cleared.");
+    g_signal_connect(clearStorageBtn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+        auto* s = static_cast<BrayaSettings*>(data);
+        const auto siteTypes = static_cast<WebKitWebsiteDataTypes>(WEBKIT_WEBSITE_DATA_ALL & ~WEBKIT_WEBSITE_DATA_COOKIES);
+        s->clearWebsiteData(siteTypes, s->siteDataStatusLabel, "Site data cleared.");
     }), this);
 
     refreshWebsiteDataStatus(WEBKIT_WEBSITE_DATA_COOKIES, cookieStatusLabel, "Stored cookies");
-    const WebKitWebsiteDataTypes siteTypes = static_cast<WebKitWebsiteDataTypes>(WEBKIT_WEBSITE_DATA_ALL & ~WEBKIT_WEBSITE_DATA_COOKIES);
+    const auto siteTypes = static_cast<WebKitWebsiteDataTypes>(WEBKIT_WEBSITE_DATA_ALL & ~WEBKIT_WEBSITE_DATA_COOKIES);
     refreshWebsiteDataStatus(siteTypes, siteDataStatusLabel, "Stored site data entries");
 
-    GtkWidget* privacyBody = nullptr;
-    GtkWidget* privacyCard = createSettingsCard("Privacy signals", "Control what identity hints get sent", &privacyBody);
-    gtk_box_append(GTK_BOX(box), privacyCard);
-    
-    GtkWidget* dntSwitch = gtk_switch_new();
-    gtk_switch_set_active(GTK_SWITCH(dntSwitch), TRUE);
-    gtk_box_append(GTK_BOX(privacyBody), createSettingsRow("Send Do Not Track", "Ask websites politely not to track you", dntSwitch));
-    
+    // ── Site permissions ──────────────────────────────────────────────────────
+    GtkWidget* permBody = nullptr;
+    GtkWidget* permCard = createSettingsCard("Site permissions", "Camera, microphone, and location controls", &permBody);
+    gtk_box_append(GTK_BOX(box), permCard);
+
     GtkWidget* permissionsBtn = gtk_button_new_with_label("Manage Site Permissions");
-    g_signal_connect(permissionsBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data){
+    g_signal_connect(permissionsBtn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
         auto* settings = static_cast<BrayaSettings*>(data);
         if (!settings || !settings->dialog) return;
         if (settings->permissionsDialog) {
             gtk_window_present(GTK_WINDOW(settings->permissionsDialog));
             return;
         }
-
-        GtkWindow* dialog = GTK_WINDOW(gtk_window_new());
-        settings->permissionsDialog = GTK_WIDGET(dialog);
-        gtk_window_set_modal(dialog, TRUE);
-        gtk_window_set_transient_for(dialog, GTK_WINDOW(settings->dialog));
-        gtk_window_set_title(dialog, "Manage Site Permissions");
-        gtk_window_set_default_size(dialog, 600, 420);
+        GtkWindow* win = GTK_WINDOW(gtk_window_new());
+        settings->permissionsDialog = GTK_WIDGET(win);
+        gtk_window_set_modal(win, TRUE);
+        gtk_window_set_transient_for(win, GTK_WINDOW(settings->dialog));
+        gtk_window_set_title(win, "Manage Site Permissions");
+        gtk_window_set_default_size(win, 600, 420);
 
         GtkWidget* content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
         gtk_widget_set_margin_start(content, 16);
         gtk_widget_set_margin_end(content, 16);
         gtk_widget_set_margin_top(content, 16);
         gtk_widget_set_margin_bottom(content, 16);
-        gtk_window_set_child(dialog, content);
+        gtk_window_set_child(win, content);
 
-        GtkWidget* desc = gtk_label_new("Review cookies and site permissions per domain. Select a site to clear data or reset permissions.");
+        GtkWidget* desc = gtk_label_new("Review cookies and site permissions per domain.");
         gtk_label_set_wrap(GTK_LABEL(desc), TRUE);
         gtk_widget_set_halign(desc, GTK_ALIGN_START);
         gtk_box_append(GTK_BOX(content), desc);
 
-        GtkWidget* scrolled = gtk_scrolled_window_new();
-        gtk_widget_set_vexpand(scrolled, TRUE);
-        gtk_box_append(GTK_BOX(content), scrolled);
+        GtkWidget* sw = gtk_scrolled_window_new();
+        gtk_widget_set_vexpand(sw, TRUE);
+        gtk_box_append(GTK_BOX(content), sw);
 
         GtkWidget* list = gtk_list_box_new();
         gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_NONE);
-        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), list);
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(sw), list);
         settings->permissionsList = list;
 
         GtkWidget* footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -708,20 +725,23 @@ GtkWidget* BrayaSettings::createPrivacyTab() {
         gtk_box_append(GTK_BOX(content), footer);
 
         GtkWidget* closeBtn = gtk_button_new_with_label("Close");
-        g_signal_connect_swapped(closeBtn, "clicked", G_CALLBACK(gtk_window_close), dialog);
+        g_signal_connect_swapped(closeBtn, "clicked", G_CALLBACK(gtk_window_close), win);
         gtk_box_append(GTK_BOX(footer), closeBtn);
 
-        g_signal_connect(dialog, "close-request", G_CALLBACK(+[](GtkWindow*, gpointer d) {
-            auto* settings = static_cast<BrayaSettings*>(d);
-            settings->permissionsDialog = nullptr;
-            settings->permissionsList = nullptr;
+        g_signal_connect(win, "close-request", G_CALLBACK(+[](GtkWindow*, gpointer d) -> gboolean {
+            auto* s = static_cast<BrayaSettings*>(d);
+            s->permissionsDialog = nullptr;
+            s->permissionsList = nullptr;
             return FALSE;
         }), settings);
 
         settings->populatePermissionsList();
-        gtk_window_present(dialog);
+        gtk_window_present(win);
     }), this);
-    gtk_box_append(GTK_BOX(privacyBody), createSettingsActionRow("Per-site rules", "Camera, microphone, and location controls", permissionsBtn));
+    gtk_box_append(GTK_BOX(permBody), createSettingsActionRow("Per-site rules", "Review and clear per-domain data", permissionsBtn));
+
+    // Store the box pointer so updateAdBlockerUI can find its dynamic sub-widgets
+    g_object_set_data(G_OBJECT(box), "privacy-tab-box", box);
 
     return scrolled;
 }
@@ -781,21 +801,129 @@ GtkWidget* BrayaSettings::createAdvancedTab() {
     pluginsSwitch = gtk_switch_new();
     gtk_box_append(GTK_BOX(webBody), createSettingsRow("Enable Plugins", "Legacy NPAPI-style plugin support", pluginsSwitch));
     
+    GtkWidget* shortcutsBody = nullptr;
+    GtkWidget* shortcutsCard = createSettingsCard("Keyboard Shortcuts", "Quick reference for v1.1 features", &shortcutsBody);
+    gtk_box_append(GTK_BOX(box), shortcutsCard);
+
+    const struct { const char* key; const char* desc; } shortcuts[] = {
+        {"Ctrl+Space",         "Command Palette — search, navigate, run commands"},
+        {"Ctrl+Shift+N",       "New Private Window"},
+        {"Ctrl++ / Ctrl+-",    "Zoom in / Zoom out"},
+        {"Ctrl+0",             "Reset zoom to 100%"},
+        {"Alt+Shift+R",        "Toggle Reader Mode"},
+        {"Ctrl+Shift+S",       "Take Screenshot"},
+    };
+    for (const auto& s : shortcuts) {
+        GtkWidget* keyLabel = gtk_label_new(s.key);
+        gtk_widget_add_css_class(keyLabel, "monospace");
+        gtk_widget_set_halign(keyLabel, GTK_ALIGN_END);
+        gtk_box_append(GTK_BOX(shortcutsBody), createSettingsRow(s.key, s.desc, gtk_label_new("")));
+    }
+
     GtkWidget* aboutBody = nullptr;
-    GtkWidget* aboutCard = createSettingsCard("About Braya", "Build metadata & debugging shortcuts", &aboutBody);
+    GtkWidget* aboutCard = createSettingsCard("About Braya", "Browser info & debugging shortcuts", &aboutBody);
     gtk_box_append(GTK_BOX(box), aboutCard);
-    
-    GtkWidget* versionLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(versionLabel),
-        "<span>🐕 <b>Braya Browser</b> v1.0.9<br/>Built with WebKit2GTK 6.0 &amp; GTK 4</span>");
-    gtk_widget_set_halign(versionLabel, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(aboutBody), versionLabel);
-    
+
+    // --- App name + logo row ---
+    GtkWidget* heroBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+    gtk_widget_set_margin_bottom(heroBox, 8);
+    GtkWidget* iconImg = gtk_image_new_from_icon_name("braya-browser");
+    gtk_image_set_pixel_size(GTK_IMAGE(iconImg), 48);
+    gtk_box_append(GTK_BOX(heroBox), iconImg);
+    GtkWidget* heroLabels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    GtkWidget* nameLabel = gtk_label_new(nullptr);
+    gtk_label_set_markup(GTK_LABEL(nameLabel), "<b><big>Braya Browser</big></b>");
+    gtk_label_set_xalign(GTK_LABEL(nameLabel), 0);
+    GtkWidget* tagLabel = gtk_label_new("Fast. Private. Yours.");
+    gtk_label_set_xalign(GTK_LABEL(tagLabel), 0);
+    gtk_widget_add_css_class(tagLabel, "dim-label");
+    gtk_box_append(GTK_BOX(heroLabels), nameLabel);
+    gtk_box_append(GTK_BOX(heroLabels), tagLabel);
+    gtk_box_append(GTK_BOX(heroBox), heroLabels);
+    gtk_box_append(GTK_BOX(aboutBody), heroBox);
+
+    gtk_box_append(GTK_BOX(aboutBody), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    // --- Version rows ---
+    auto makeInfoRow = [&](const char* label, const std::string& value) {
+        GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_set_margin_top(row, 4);
+        gtk_widget_set_margin_bottom(row, 4);
+        GtkWidget* lbl = gtk_label_new(label);
+        gtk_label_set_xalign(GTK_LABEL(lbl), 0);
+        gtk_widget_set_hexpand(lbl, TRUE);
+        gtk_widget_add_css_class(lbl, "dim-label");
+        GtkWidget* val = gtk_label_new(value.c_str());
+        gtk_label_set_xalign(GTK_LABEL(val), 1);
+        gtk_label_set_selectable(GTK_LABEL(val), TRUE);
+        gtk_box_append(GTK_BOX(row), lbl);
+        gtk_box_append(GTK_BOX(row), val);
+        gtk_box_append(GTK_BOX(aboutBody), row);
+    };
+
+    makeInfoRow("Version", "1.1.0");
+
+    // Runtime WebKit version
+    std::string wkVersion = std::to_string(webkit_get_major_version()) + "." +
+                            std::to_string(webkit_get_minor_version()) + "." +
+                            std::to_string(webkit_get_micro_version());
+    makeInfoRow("WebKit Engine", wkVersion);
+
+    // Runtime GTK version
+    std::string gtkVersion = std::to_string(gtk_get_major_version()) + "." +
+                             std::to_string(gtk_get_minor_version()) + "." +
+                             std::to_string(gtk_get_micro_version());
+    makeInfoRow("GTK Version", gtkVersion);
+
+    // Platform
+    struct utsname uts;
+    std::string platform = "Linux";
+    if (uname(&uts) == 0) {
+        platform = std::string(uts.sysname) + " " + uts.machine;
+    }
+    makeInfoRow("Platform", platform);
+
+    // Profile path
+    std::string profilePath = std::string(g_get_user_data_dir()) + "/braya-browser";
+    makeInfoRow("Profile folder", profilePath);
+
+    gtk_box_append(GTK_BOX(aboutBody), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    // --- Action buttons ---
     GtkWidget* profileBtn = gtk_button_new_with_label("Open Profile Folder");
-    g_signal_connect(profileBtn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer){
-        g_print("Profile folder shortcut coming soon.\n");
+    g_signal_connect(profileBtn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+        const char* path = static_cast<const char*>(data);
+        char* uri = g_filename_to_uri(path, nullptr, nullptr);
+        if (uri) {
+            GtkUriLauncher* launcher = gtk_uri_launcher_new(uri);
+            gtk_uri_launcher_launch(launcher, nullptr, nullptr, nullptr, nullptr);
+            g_object_unref(launcher);
+            g_free(uri);
+        }
+    }), g_strdup(profilePath.c_str()));
+    gtk_box_append(GTK_BOX(aboutBody), createSettingsActionRow("Profile directory", profilePath.c_str(), profileBtn));
+
+    GtkWidget* copyBtn = gtk_button_new_with_label("Copy Version Info");
+    g_signal_connect(copyBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer) {
+        GdkDisplay* display = gdk_display_get_default();
+        if (!display) return;
+        GdkClipboard* clipboard = gdk_display_get_clipboard(display);
+        std::string info = "Braya Browser 1.1.0\nWebKit " +
+            std::to_string(webkit_get_major_version()) + "." +
+            std::to_string(webkit_get_minor_version()) + "." +
+            std::to_string(webkit_get_micro_version()) +
+            "\nGTK " +
+            std::to_string(gtk_get_major_version()) + "." +
+            std::to_string(gtk_get_minor_version()) + "." +
+            std::to_string(gtk_get_micro_version());
+        gdk_clipboard_set_text(clipboard, info.c_str());
+        gtk_button_set_label(btn, "Copied!");
+        g_timeout_add(1500, G_SOURCE_FUNC(+[](gpointer b) -> gboolean {
+            gtk_button_set_label(GTK_BUTTON(b), "Copy Version Info");
+            return G_SOURCE_REMOVE;
+        }), btn);
     }), nullptr);
-    gtk_box_append(GTK_BOX(aboutBody), createSettingsActionRow("Profile directory", "Inspect logs, extensions, and saved data", profileBtn));
+    gtk_box_append(GTK_BOX(aboutBody), createSettingsActionRow("Version info", "Copy to clipboard for bug reports", copyBtn));
     
     return scrolled;
 }
@@ -819,7 +947,7 @@ void BrayaSettings::updateUIFromSettings() {
         } else {  // CUSTOM
             dropdownIndex = 2;
         }
-        gtk_combo_box_set_active(GTK_COMBO_BOX(themeCombo), dropdownIndex);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(themeCombo), dropdownIndex);
     }
 
     if (bookmarksSwitch) gtk_switch_set_active(GTK_SWITCH(bookmarksSwitch), showBookmarks);
@@ -830,13 +958,14 @@ void BrayaSettings::updateUIFromSettings() {
     if (webglSwitch) gtk_switch_set_active(GTK_SWITCH(webglSwitch), enableWebGL);
     if (pluginsSwitch) gtk_switch_set_active(GTK_SWITCH(pluginsSwitch), enablePlugins);
     if (tabPreviewsSwitch) gtk_switch_set_active(GTK_SWITCH(tabPreviewsSwitch), showTabPreviews);
-    
+
     if (searchEngineCombo) {
-        if (searchEngine == "DuckDuckGo") gtk_combo_box_set_active(GTK_COMBO_BOX(searchEngineCombo), 0);
-        else if (searchEngine == "Google") gtk_combo_box_set_active(GTK_COMBO_BOX(searchEngineCombo), 1);
-        else if (searchEngine == "Bing") gtk_combo_box_set_active(GTK_COMBO_BOX(searchEngineCombo), 2);
-        else if (searchEngine == "Brave Search") gtk_combo_box_set_active(GTK_COMBO_BOX(searchEngineCombo), 3);
-        else gtk_combo_box_set_active(GTK_COMBO_BOX(searchEngineCombo), 4);
+        guint seIdx = 0;
+        if (searchEngine == "Google")       seIdx = 1;
+        else if (searchEngine == "Bing")    seIdx = 2;
+        else if (searchEngine == "Brave Search") seIdx = 3;
+        else if (searchEngine == "Ecosia")  seIdx = 4;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(searchEngineCombo), seIdx);
     }
 
     // Update ad-blocker UI from current state
@@ -867,10 +996,9 @@ void BrayaSettings::buildSearchIndex() {
     sectionSearchIndex = {
         {"general", "General", {"home", "homepage", "startup", "downloads", "default", "session", "search"}},
         {"appearance", "Appearance", {"theme", "color", "font", "layout", "accent", "light", "dark"}},
-        {"privacy", "Privacy", {"tracking", "cookies", "permissions", "site", "history"}},
+        {"privacy", "Privacy & Security", {"tracking", "cookies", "permissions", "site", "history", "ads", "filters", "blocking", "whitelist", "shield", "adblocker"}},
         {"security", "Security", {"https", "sandbox", "warnings", "certificates"}},
         {"passwords", "Passwords", {"credentials", "login", "manager", "bitwarden", "import", "export"}},
-        {"adblocker", "Ad-Blocker", {"ads", "filters", "blocking", "whitelist", "shield"}},
         {"extensions", "Extensions", {"addons", "extensions", "store", "apis", "permissions"}},
         {"advanced", "Advanced", {"developer", "experiments", "debug", "shortcuts"}}
     };
@@ -1091,26 +1219,16 @@ void BrayaSettings::updateAdBlockerUI() {
         gtk_switch_set_active(GTK_SWITCH(adBlockerEnabledSwitch), m_adBlocker->isEnabled());
     }
 
-    // Update security level combo
+    // Update security level combo (0=Off,1=Minimal,2=Standard,3=Strict,4=Custom)
     if (securityLevelCombo) {
         SecurityLevel level = m_adBlocker->getSecurityLevel();
-        switch (level) {
-            case SecurityLevel::OFF:
-                gtk_combo_box_set_active_id(GTK_COMBO_BOX(securityLevelCombo), "off");
-                break;
-            case SecurityLevel::MINIMAL:
-                gtk_combo_box_set_active_id(GTK_COMBO_BOX(securityLevelCombo), "minimal");
-                break;
-            case SecurityLevel::STANDARD:
-                gtk_combo_box_set_active_id(GTK_COMBO_BOX(securityLevelCombo), "standard");
-                break;
-            case SecurityLevel::STRICT:
-                gtk_combo_box_set_active_id(GTK_COMBO_BOX(securityLevelCombo), "strict");
-                break;
-            case SecurityLevel::CUSTOM:
-                gtk_combo_box_set_active_id(GTK_COMBO_BOX(securityLevelCombo), "custom");
-                break;
-        }
+        guint idx = 2; // default Standard
+        if      (level == SecurityLevel::OFF)     idx = 0;
+        else if (level == SecurityLevel::MINIMAL)  idx = 1;
+        else if (level == SecurityLevel::STANDARD) idx = 2;
+        else if (level == SecurityLevel::STRICT)   idx = 3;
+        else if (level == SecurityLevel::CUSTOM)   idx = 4;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(securityLevelCombo), idx);
     }
 
     // Update feature checkboxes
@@ -1128,7 +1246,7 @@ void BrayaSettings::updateAdBlockerUI() {
 
     // Update whitelist display
     if (notebook) {
-        GtkWidget* adBlockerTab = gtk_stack_get_child_by_name(GTK_STACK(notebook), "adblocker");
+        GtkWidget* adBlockerTab = gtk_stack_get_child_by_name(GTK_STACK(notebook), "privacy");
         if (adBlockerTab) {
             GtkWidget* scrolled = gtk_widget_get_first_child(adBlockerTab);
             if (scrolled && GTK_IS_SCROLLED_WINDOW(scrolled)) {
@@ -1180,10 +1298,32 @@ void BrayaSettings::updateAdBlockerUI() {
                         for (const auto& list : filterLists) {
                             GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 15);
 
+                            // Name + "Updated X days ago" stacked vertically
+                            GtkWidget* labelBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+                            gtk_widget_set_hexpand(labelBox, TRUE);
+
                             GtkWidget* nameLabel = gtk_label_new(list.name.c_str());
                             gtk_label_set_xalign(GTK_LABEL(nameLabel), 0);
-                            gtk_widget_set_hexpand(nameLabel, TRUE);
-                            gtk_box_append(GTK_BOX(row), nameLabel);
+                            gtk_box_append(GTK_BOX(labelBox), nameLabel);
+
+                            if (!list.last_updated.empty()) {
+                                // Compute days since last_updated (YYYY-MM-DD)
+                                std::string ageStr = "Updated " + list.last_updated;
+                                struct tm tm = {};
+                                if (strptime(list.last_updated.c_str(), "%Y-%m-%d", &tm)) {
+                                    time_t then = mktime(&tm);
+                                    int days = (int)(difftime(time(nullptr), then) / 86400.0);
+                                    if (days == 0)      ageStr = "Updated today";
+                                    else if (days == 1) ageStr = "Updated yesterday";
+                                    else                ageStr = "Updated " + std::to_string(days) + " days ago";
+                                }
+                                GtkWidget* ageLabel = gtk_label_new(ageStr.c_str());
+                                gtk_label_set_xalign(GTK_LABEL(ageLabel), 0);
+                                gtk_widget_add_css_class(ageLabel, "dim-label");
+                                gtk_box_append(GTK_BOX(labelBox), ageLabel);
+                            }
+
+                            gtk_box_append(GTK_BOX(row), labelBox);
 
                             GtkWidget* toggleSwitch = gtk_switch_new();
                             gtk_switch_set_active(GTK_SWITCH(toggleSwitch), list.enabled);
@@ -1267,9 +1407,9 @@ void BrayaSettings::applySettings() {
     if (tabPreviewsSwitch) showTabPreviews = gtk_switch_get_active(GTK_SWITCH(tabPreviewsSwitch));
     
     if (searchEngineCombo) {
-        int active = gtk_combo_box_get_active(GTK_COMBO_BOX(searchEngineCombo));
         const char* engines[] = {"DuckDuckGo", "Google", "Bing", "Brave Search", "Ecosia"};
-        if (active >= 0 && active < 5) searchEngine = engines[active];
+        guint active = gtk_drop_down_get_selected(GTK_DROP_DOWN(searchEngineCombo));
+        if (active < 5) searchEngine = engines[active];
     }
     
     saveSettings();
@@ -1301,6 +1441,7 @@ void BrayaSettings::saveSettings() {
     file << "  \"enableWebGL\": " << (enableWebGL ? "true" : "false") << ",\n";
     file << "  \"enablePlugins\": " << (enablePlugins ? "true" : "false") << ",\n";
     file << "  \"showTabPreviews\": " << (showTabPreviews ? "true" : "false") << ",\n";
+    file << "  \"restoreSession\": " << (restoreSession ? "true" : "false") << ",\n";
     file << "  \"downloadPath\": \"" << downloadPath << "\",\n";
     file << "  \"homePage\": \"" << homePage << "\",\n";
     file << "  \"searchEngine\": \"" << searchEngine << "\"\n";
@@ -1364,6 +1505,9 @@ void BrayaSettings::loadSettings() {
         else if (line.find("\"showTabPreviews\":") != std::string::npos) {
             showTabPreviews = line.find("true") != std::string::npos;
         }
+        else if (line.find("\"restoreSession\":") != std::string::npos) {
+            restoreSession = line.find("true") != std::string::npos;
+        }
     }
     file.close();
 }
@@ -1386,25 +1530,16 @@ void BrayaSettings::setHomePage(const std::string& page) { homePage = page; }
 void BrayaSettings::setSearchEngine(const std::string& engine) { searchEngine = engine; }
 
 // Callbacks
-void BrayaSettings::onThemeChanged(GtkComboBox* combo, gpointer data) {
+void BrayaSettings::onThemeChanged(GObject* obj, GParamSpec*, gpointer data) {
     BrayaSettings* settings = static_cast<BrayaSettings*>(data);
-    int dropdownIndex = gtk_combo_box_get_active(combo);
+    guint dropdownIndex = gtk_drop_down_get_selected(GTK_DROP_DOWN(obj));
 
-    // Map dropdown index to Theme enum (Light removed from dropdown)
-    // Dropdown: 0=Dark, 1=Industrial, 2=Custom
-    // Enum: DARK=0, LIGHT=1, INDUSTRIAL=2, CUSTOM=3
-    Theme themeId;
-    if (dropdownIndex == 0) {
-        themeId = DARK;
-    } else if (dropdownIndex == 1) {
-        themeId = INDUSTRIAL;
-    } else {
-        themeId = CUSTOM;
-    }
+    // Dropdown: 0=Dark, 1=Industrial, 2=Custom → enum: DARK=0, INDUSTRIAL=2, CUSTOM=3
+    Theme themeId = (dropdownIndex == 0) ? DARK : (dropdownIndex == 1) ? INDUSTRIAL : CUSTOM;
 
     settings->setTheme(themeId);
+    settings->saveSettings();
 
-    // Call the callback immediately to apply theme
     if (settings->themeCallback) {
         settings->themeCallback(static_cast<int>(themeId));
     }
@@ -1420,17 +1555,6 @@ void BrayaSettings::onBookmarksToggled(GtkSwitch* widget, gboolean state, gpoint
     settings->setShowBookmarks(state);
 }
 
-void BrayaSettings::onApplyClicked(GtkButton* button, gpointer data) {
-    BrayaSettings* settings = static_cast<BrayaSettings*>(data);
-    settings->applySettings();
-}
-
-void BrayaSettings::onCloseClicked(GtkButton* button, gpointer data) {
-    BrayaSettings* settings = static_cast<BrayaSettings*>(data);
-    settings->applySettings();
-    gtk_window_destroy(GTK_WINDOW(settings->dialog));
-    settings->dialog = nullptr;
-}
 
 void BrayaSettings::onColorButtonClicked(GtkButton* button, gpointer data) {
     std::cout << "Color picker coming soon!" << std::endl;
@@ -1712,62 +1836,38 @@ void BrayaSettings::onLoadUnpackedClicked(GtkButton* button, gpointer user_data)
 }
 
 void BrayaSettings::loadUnpackedExtension() {
-    // Create file chooser dialog for selecting directory
-    GtkWidget* fileDialog = gtk_file_chooser_dialog_new(
-        "Select Extension Directory",
-        GTK_WINDOW(dialog),
-        GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
-        "Cancel", GTK_RESPONSE_CANCEL,
-        "Load", GTK_RESPONSE_ACCEPT,
-        nullptr
-    );
+    GtkFileDialog* fd = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(fd, "Select Extension Directory");
 
-    // Set default folder to home directory
-    const char* homeDir = g_get_home_dir();
-    GFile* homeFile = g_file_new_for_path(homeDir);
-    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(fileDialog), homeFile, nullptr);
+    GFile* homeFile = g_file_new_for_path(g_get_home_dir());
+    gtk_file_dialog_set_initial_folder(fd, homeFile);
     g_object_unref(homeFile);
 
-    // Show dialog
-    g_signal_connect(fileDialog, "response", G_CALLBACK(+[](GtkDialog* dlg, int response, gpointer user_data) {
-        auto* settings = static_cast<BrayaSettings*>(user_data);
-
-        if (response == GTK_RESPONSE_ACCEPT) {
-            GFile* folder = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(dlg));
-            char* path = g_file_get_path(folder);
-
-            std::cout << "📦 Loading extension from: " << path << std::endl;
-
-            // Load the extension
-            if (settings->m_extensionManager->loadWebExtension(path)) {
-                std::cout << "✓ Extension loaded successfully!" << std::endl;
-                settings->saveExtensionStates();
-                settings->refreshExtensionsList();
-            } else {
-                std::cerr << "❌ Failed to load extension" << std::endl;
-
-                // Show error dialog
-                GtkWidget* errorDialog = gtk_message_dialog_new(
-                    GTK_WINDOW(settings->dialog),
-                    GTK_DIALOG_MODAL,
-                    GTK_MESSAGE_ERROR,
-                    GTK_BUTTONS_OK,
-                    "Failed to Load Extension"
-                );
-                gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(errorDialog),
-                    "Could not load extension from:\n%s\n\nMake sure the directory contains a valid manifest.json file.", path);
-                gtk_window_present(GTK_WINDOW(errorDialog));
-                g_signal_connect(errorDialog, "response", G_CALLBACK(gtk_window_destroy), nullptr);
+    gtk_file_dialog_select_folder(fd, GTK_WINDOW(dialog), nullptr,
+        [](GObject* src, GAsyncResult* res, gpointer data) {
+            auto* settings = static_cast<BrayaSettings*>(data);
+            GError* err = nullptr;
+            GFile* folder = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(src), res, &err);
+            if (folder) {
+                char* path = g_file_get_path(folder);
+                if (settings->m_extensionManager->loadWebExtension(path)) {
+                    settings->saveExtensionStates();
+                    settings->refreshExtensionsList();
+                } else {
+                    std::string detail = "Could not load extension from:\n";
+                    detail += path;
+                    detail += "\n\nMake sure the directory contains a valid manifest.json.";
+                    GtkAlertDialog* alert = gtk_alert_dialog_new("Failed to Load Extension");
+                    gtk_alert_dialog_set_detail(alert, detail.c_str());
+                    gtk_alert_dialog_show(alert, GTK_WINDOW(settings->dialog));
+                    g_object_unref(alert);
+                }
+                g_free(path);
+                g_object_unref(folder);
             }
-
-            g_free(path);
-            g_object_unref(folder);
-        }
-
-        gtk_window_destroy(GTK_WINDOW(dlg));
-    }), this);
-
-    gtk_window_present(GTK_WINDOW(fileDialog));
+            if (err) g_error_free(err);
+            g_object_unref(src);
+        }, this);
 }
 
 void BrayaSettings::onToggleExtension(GtkSwitch* toggle, gboolean state, gpointer user_data) {
@@ -1799,49 +1899,34 @@ void BrayaSettings::removeExtension(const std::string& extensionId) {
 
     std::string extensionName = extension->getName();
 
-    // Show confirmation dialog
-    GtkWidget* confirmDialog = gtk_message_dialog_new(
-        GTK_WINDOW(dialog),
-        GTK_DIALOG_MODAL,
-        GTK_MESSAGE_QUESTION,
-        GTK_BUTTONS_NONE,
-        "Remove Extension?"
-    );
-    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(confirmDialog),
-        "Are you sure you want to remove '%s'?\n\nThe extension files will not be deleted from disk.",
-        extensionName.c_str());
+    std::string detail = "Are you sure you want to remove '" + extensionName +
+                         "'?\n\nThe extension files will not be deleted from disk.";
 
-    gtk_dialog_add_buttons(GTK_DIALOG(confirmDialog),
-        "Cancel", GTK_RESPONSE_CANCEL,
-        "Remove", GTK_RESPONSE_ACCEPT,
-        nullptr);
+    const char* buttons[] = {"Cancel", "Remove", nullptr};
+    GtkAlertDialog* alert = gtk_alert_dialog_new("Remove Extension?");
+    gtk_alert_dialog_set_detail(alert, detail.c_str());
+    gtk_alert_dialog_set_buttons(alert, buttons);
+    gtk_alert_dialog_set_default_button(alert, 0);
+    gtk_alert_dialog_set_cancel_button(alert, 0);
 
-    // Make Remove button destructive
-    GtkWidget* removeBtn = gtk_dialog_get_widget_for_response(GTK_DIALOG(confirmDialog), GTK_RESPONSE_ACCEPT);
-    gtk_widget_add_css_class(removeBtn, "destructive-action");
-
-    auto* data = new std::pair<BrayaSettings*, std::string>(this, extensionId);
-    auto callback = +[](GtkDialog* dlg, int response, gpointer user_data) {
-        auto* data = static_cast<std::pair<BrayaSettings*, std::string>*>(user_data);
-
-        if (response == GTK_RESPONSE_ACCEPT) {
-            std::cout << "🗑️  Removing extension: " << data->second << std::endl;
-            data->first->m_extensionManager->removeWebExtension(data->second);
-            data->first->saveExtensionStates();
-            data->first->refreshExtensionsList();
-
-            // Update the extension buttons in the toolbar via callback
-            if (data->first->m_extensionChangeCallback) {
-                data->first->m_extensionChangeCallback();
+    auto* ctx = new std::pair<BrayaSettings*, std::string>(this, extensionId);
+    gtk_alert_dialog_choose(alert, GTK_WINDOW(dialog), nullptr,
+        [](GObject* src, GAsyncResult* res, gpointer data) {
+            auto* ctx = static_cast<std::pair<BrayaSettings*, std::string>*>(data);
+            GError* err = nullptr;
+            int btn = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(src), res, &err);
+            if (btn == 1) { // "Remove"
+                ctx->first->m_extensionManager->removeWebExtension(ctx->second);
+                ctx->first->saveExtensionStates();
+                ctx->first->refreshExtensionsList();
+                if (ctx->first->m_extensionChangeCallback)
+                    ctx->first->m_extensionChangeCallback();
             }
-        }
-
-        delete data;
-        gtk_window_destroy(GTK_WINDOW(dlg));
-    };
-    g_signal_connect_data(confirmDialog, "response", G_CALLBACK(callback), data, nullptr, (GConnectFlags)0);
-
-    gtk_window_present(GTK_WINDOW(confirmDialog));
+            if (err) g_error_free(err);
+            delete ctx;
+            g_object_unref(src);
+        }, ctx);
+    g_object_unref(alert);
 }
 
 void BrayaSettings::saveExtensionStates() {
@@ -1968,137 +2053,6 @@ void BrayaSettings::loadExtensionStates() {
 
     g_object_unref(parser);
     std::cout << "✓ Extensions loaded from config" << std::endl;
-}
-
-// Ad-Blocker Tab
-GtkWidget* BrayaSettings::createAdBlockerTab() {
-    GtkWidget* scrolled = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
-                                   GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-
-    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
-    gtk_widget_set_margin_start(box, 30);
-    gtk_widget_set_margin_end(box, 30);
-    gtk_widget_set_margin_top(box, 30);
-    gtk_widget_set_margin_bottom(box, 30);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), box);
-
-    // Header
-    GtkWidget* headerLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(headerLabel), "<span size='large' weight='bold'>🛡️ Ad-Blocker Settings</span>");
-    gtk_widget_set_halign(headerLabel, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(box), headerLabel);
-
-    GtkWidget* descLabel = gtk_label_new("Control ad-blocking, tracking protection, and privacy features");
-    gtk_widget_add_css_class(descLabel, "dim-label");
-    gtk_widget_set_halign(descLabel, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(box), descLabel);
-
-    // Enable/Disable
-    GtkWidget* enableBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 15);
-    gtk_box_append(GTK_BOX(box), enableBox);
-
-    GtkWidget* enableLabel = gtk_label_new("Enable Ad-Blocker");
-    gtk_label_set_xalign(GTK_LABEL(enableLabel), 0);
-    gtk_widget_set_hexpand(enableLabel, TRUE);
-    gtk_box_append(GTK_BOX(enableBox), enableLabel);
-
-    adBlockerEnabledSwitch = gtk_switch_new();
-    gtk_switch_set_active(GTK_SWITCH(adBlockerEnabledSwitch), TRUE);
-    g_signal_connect(adBlockerEnabledSwitch, "state-set", G_CALLBACK(onAdBlockerToggled), this);
-    gtk_box_append(GTK_BOX(enableBox), adBlockerEnabledSwitch);
-
-    // Security Level
-    GtkWidget* secLevelBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 15);
-    gtk_box_append(GTK_BOX(box), secLevelBox);
-
-    GtkWidget* secLabel = gtk_label_new("Security Level");
-    gtk_label_set_xalign(GTK_LABEL(secLabel), 0);
-    gtk_widget_set_hexpand(secLabel, TRUE);
-    gtk_box_append(GTK_BOX(secLevelBox), secLabel);
-
-    securityLevelCombo = gtk_combo_box_text_new();
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(securityLevelCombo), "off", "Off");
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(securityLevelCombo), "minimal", "Minimal");
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(securityLevelCombo), "standard", "Standard");
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(securityLevelCombo), "strict", "Strict");
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(securityLevelCombo), "custom", "Custom");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(securityLevelCombo), 2); // Standard
-    g_signal_connect(securityLevelCombo, "changed", G_CALLBACK(onSecurityLevelChanged), this);
-    gtk_box_append(GTK_BOX(secLevelBox), securityLevelCombo);
-
-    // Features grid
-    GtkWidget* featuresLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(featuresLabel), "<span weight='bold'>Blocking Features</span>");
-    gtk_widget_set_halign(featuresLabel, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(featuresLabel, 10);
-    gtk_box_append(GTK_BOX(box), featuresLabel);
-
-    GtkWidget* featuresGrid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(featuresGrid), 10);
-    gtk_grid_set_column_spacing(GTK_GRID(featuresGrid), 20);
-    gtk_box_append(GTK_BOX(box), featuresGrid);
-
-    // Feature checkboxes
-    blockAdsCheck = gtk_check_button_new_with_label("Block Ads");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockAdsCheck), TRUE);
-    g_signal_connect(blockAdsCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
-    gtk_grid_attach(GTK_GRID(featuresGrid), blockAdsCheck, 0, 0, 1, 1);
-
-    blockTrackersCheck = gtk_check_button_new_with_label("Block Trackers");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockTrackersCheck), TRUE);
-    g_signal_connect(blockTrackersCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
-    gtk_grid_attach(GTK_GRID(featuresGrid), blockTrackersCheck, 1, 0, 1, 1);
-
-    blockSocialCheck = gtk_check_button_new_with_label("Block Social Widgets");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockSocialCheck), FALSE);
-    g_signal_connect(blockSocialCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
-    gtk_grid_attach(GTK_GRID(featuresGrid), blockSocialCheck, 0, 1, 1, 1);
-
-    blockCryptominersCheck = gtk_check_button_new_with_label("Block Cryptominers");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockCryptominersCheck), TRUE);
-    g_signal_connect(blockCryptominersCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
-    gtk_grid_attach(GTK_GRID(featuresGrid), blockCryptominersCheck, 1, 1, 1, 1);
-
-    blockPopupsCheck = gtk_check_button_new_with_label("Block Pop-ups");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockPopupsCheck), TRUE);
-    g_signal_connect(blockPopupsCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
-    gtk_grid_attach(GTK_GRID(featuresGrid), blockPopupsCheck, 0, 2, 1, 1);
-
-    blockAutoplayCheck = gtk_check_button_new_with_label("Block Autoplay Videos");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockAutoplayCheck), FALSE);
-    g_signal_connect(blockAutoplayCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
-    gtk_grid_attach(GTK_GRID(featuresGrid), blockAutoplayCheck, 1, 2, 1, 1);
-
-    removeCookieWarningsCheck = gtk_check_button_new_with_label("Remove Cookie Warnings");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(removeCookieWarningsCheck), FALSE);
-    g_signal_connect(removeCookieWarningsCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
-    gtk_grid_attach(GTK_GRID(featuresGrid), removeCookieWarningsCheck, 0, 3, 1, 1);
-
-    blockNSFWCheck = gtk_check_button_new_with_label("Block NSFW Content");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(blockNSFWCheck), FALSE);
-    g_signal_connect(blockNSFWCheck, "toggled", G_CALLBACK(onFeatureToggled), this);
-    gtk_grid_attach(GTK_GRID(featuresGrid), blockNSFWCheck, 1, 3, 1, 1);
-
-    // Import/Export Section
-    GtkWidget* importExportLabel = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(importExportLabel), "<span weight='bold'>Import/Export</span>");
-    gtk_widget_set_halign(importExportLabel, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(importExportLabel, 20);
-    gtk_box_append(GTK_BOX(box), importExportLabel);
-
-    GtkWidget* importExportBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_box_append(GTK_BOX(box), importExportBox);
-
-    GtkWidget* exportBtn = gtk_button_new_with_label("Export Settings");
-    g_signal_connect(exportBtn, "clicked", G_CALLBACK(onExportSettings), this);
-    gtk_box_append(GTK_BOX(importExportBox), exportBtn);
-
-    GtkWidget* importBtn = gtk_button_new_with_label("Import Settings");
-    g_signal_connect(importBtn, "clicked", G_CALLBACK(onImportSettings), this);
-    gtk_box_append(GTK_BOX(importExportBox), importBtn);
-
-    return scrolled;
 }
 
 GtkWidget* BrayaSettings::createPasswordsTab() {
@@ -2251,33 +2205,23 @@ GtkWidget* BrayaSettings::createPasswordsTab() {
     g_signal_connect(exportBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
         BrayaSettings* settings = static_cast<BrayaSettings*>(g_object_get_data(G_OBJECT(btn), "settings"));
         if (settings && settings->m_passwordManager && settings->dialog) {
-            GtkFileChooserNative* chooser = gtk_file_chooser_native_new(
-                "Export Passwords",
-                GTK_WINDOW(settings->dialog),
-                GTK_FILE_CHOOSER_ACTION_SAVE,
-                "Export",
-                "Cancel"
-            );
-
-            gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(chooser), "braya-passwords.csv");
-
-            g_object_set_data(G_OBJECT(chooser), "settings", settings);
-            g_signal_connect(chooser, "response", G_CALLBACK(+[](GtkFileChooserNative* chooser, int response, gpointer) {
-                if (response == GTK_RESPONSE_ACCEPT) {
-                    auto* settings = static_cast<BrayaSettings*>(g_object_get_data(G_OBJECT(chooser), "settings"));
-                    GFile* file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(chooser));
-                    char* path = g_file_get_path(file);
-                    if (path && settings->m_passwordManager) {
-                        if (settings->m_passwordManager->exportToCSV(path)) {
-                            g_print("✓ Passwords exported to %s\n", path);
-                        }
+            GtkFileDialog* fd = gtk_file_dialog_new();
+            gtk_file_dialog_set_title(fd, "Export Passwords");
+            gtk_file_dialog_set_initial_name(fd, "braya-passwords.csv");
+            gtk_file_dialog_save(fd, GTK_WINDOW(settings->dialog), nullptr,
+                [](GObject* src, GAsyncResult* res, gpointer data) {
+                    auto* s = static_cast<BrayaSettings*>(data);
+                    GError* err = nullptr;
+                    GFile* file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(src), res, &err);
+                    if (file) {
+                        char* path = g_file_get_path(file);
+                        if (path && s->m_passwordManager) s->m_passwordManager->exportToCSV(path);
                         g_free(path);
+                        g_object_unref(file);
                     }
-                    g_object_unref(file);
-                }
-            }), nullptr);
-
-            gtk_native_dialog_show(GTK_NATIVE_DIALOG(chooser));
+                    if (err) g_error_free(err);
+                    g_object_unref(src);
+                }, settings);
         }
     }), nullptr);
     gtk_box_append(GTK_BOX(importExportBox), exportBtn);
@@ -2287,36 +2231,30 @@ GtkWidget* BrayaSettings::createPasswordsTab() {
     g_signal_connect(importBtn, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer data) {
         BrayaSettings* settings = static_cast<BrayaSettings*>(g_object_get_data(G_OBJECT(btn), "settings"));
         if (settings && settings->m_passwordManager && settings->dialog) {
-            GtkFileChooserNative* chooser = gtk_file_chooser_native_new(
-                "Import Passwords",
-                GTK_WINDOW(settings->dialog),
-                GTK_FILE_CHOOSER_ACTION_OPEN,
-                "Import",
-                "Cancel"
-            );
-
+            GtkFileDialog* fd = gtk_file_dialog_new();
+            gtk_file_dialog_set_title(fd, "Import Passwords");
             GtkFileFilter* filter = gtk_file_filter_new();
             gtk_file_filter_set_name(filter, "CSV Files");
             gtk_file_filter_add_pattern(filter, "*.csv");
-            gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(chooser), filter);
-
-            g_object_set_data(G_OBJECT(chooser), "settings", settings);
-            g_signal_connect(chooser, "response", G_CALLBACK(+[](GtkFileChooserNative* chooser, int response, gpointer) {
-                if (response == GTK_RESPONSE_ACCEPT) {
-                    auto* settings = static_cast<BrayaSettings*>(g_object_get_data(G_OBJECT(chooser), "settings"));
-                    GFile* file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(chooser));
-                    char* path = g_file_get_path(file);
-                    if (path && settings->m_passwordManager) {
-                        if (settings->m_passwordManager->importFromCSV(path)) {
-                            g_print("✓ Passwords imported from %s\n", path);
-                        }
+            GListStore* flist = g_list_store_new(GTK_TYPE_FILE_FILTER);
+            g_list_store_append(flist, filter);
+            g_object_unref(filter);
+            gtk_file_dialog_set_filters(fd, G_LIST_MODEL(flist));
+            g_object_unref(flist);
+            gtk_file_dialog_open(fd, GTK_WINDOW(settings->dialog), nullptr,
+                [](GObject* src, GAsyncResult* res, gpointer data) {
+                    auto* s = static_cast<BrayaSettings*>(data);
+                    GError* err = nullptr;
+                    GFile* file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(src), res, &err);
+                    if (file) {
+                        char* path = g_file_get_path(file);
+                        if (path && s->m_passwordManager) s->m_passwordManager->importFromCSV(path);
                         g_free(path);
+                        g_object_unref(file);
                     }
-                    g_object_unref(file);
-                }
-            }), nullptr);
-
-            gtk_native_dialog_show(GTK_NATIVE_DIALOG(chooser));
+                    if (err) g_error_free(err);
+                    g_object_unref(src);
+                }, settings);
         }
     }), nullptr);
     gtk_box_append(GTK_BOX(importExportBox), importBtn);
@@ -2346,22 +2284,19 @@ void BrayaSettings::onAdBlockerToggled(GtkSwitch* toggle, gboolean state, gpoint
     }
 }
 
-void BrayaSettings::onSecurityLevelChanged(GtkComboBox* combo, gpointer data) {
+void BrayaSettings::onSecurityLevelChanged(GObject* obj, GParamSpec*, gpointer data) {
     BrayaSettings* settings = static_cast<BrayaSettings*>(data);
     if (!settings->m_adBlocker) return;
 
-    const char* activeId = gtk_combo_box_get_active_id(combo);
-    if (!activeId) return;
-
-    SecurityLevel level;
-    if (strcmp(activeId, "off") == 0) level = SecurityLevel::OFF;
-    else if (strcmp(activeId, "minimal") == 0) level = SecurityLevel::MINIMAL;
-    else if (strcmp(activeId, "standard") == 0) level = SecurityLevel::STANDARD;
-    else if (strcmp(activeId, "strict") == 0) level = SecurityLevel::STRICT;
-    else level = SecurityLevel::CUSTOM;
-
-    settings->m_adBlocker->setSecurityLevel(level);
-    std::cout << "✓ Security level changed to: " << activeId << std::endl;
+    // Dropdown: 0=Off, 1=Minimal, 2=Standard, 3=Strict, 4=Custom
+    static const SecurityLevel levels[] = {
+        SecurityLevel::OFF, SecurityLevel::MINIMAL, SecurityLevel::STANDARD,
+        SecurityLevel::STRICT, SecurityLevel::CUSTOM
+    };
+    guint idx = gtk_drop_down_get_selected(GTK_DROP_DOWN(obj));
+    if (idx < 5) {
+        settings->m_adBlocker->setSecurityLevel(levels[idx]);
+    }
 }
 
 void BrayaSettings::onFeatureToggled(GtkCheckButton* button, gpointer data) {
@@ -2387,7 +2322,7 @@ void BrayaSettings::onAddToWhitelist(GtkButton* button, gpointer data) {
     if (!settings->m_adBlocker || !settings->notebook) return;
 
     // Get the entry widget
-    GtkWidget* adBlockerTab = gtk_stack_get_child_by_name(GTK_STACK(settings->notebook), "adblocker");
+    GtkWidget* adBlockerTab = gtk_stack_get_child_by_name(GTK_STACK(settings->notebook), "privacy");
     if (!adBlockerTab) return;
 
     GtkWidget* scrolled = gtk_widget_get_first_child(adBlockerTab);
@@ -2439,7 +2374,7 @@ void BrayaSettings::onAddCustomRule(GtkButton* button, gpointer data) {
     if (!settings->m_adBlocker || !settings->notebook) return;
 
     // Get the entry widget
-    GtkWidget* adBlockerTab = gtk_stack_get_child_by_name(GTK_STACK(settings->notebook), "adblocker");
+    GtkWidget* adBlockerTab = gtk_stack_get_child_by_name(GTK_STACK(settings->notebook), "privacy");
     if (!adBlockerTab) return;
 
     GtkWidget* scrolled = gtk_widget_get_first_child(adBlockerTab);
@@ -2506,18 +2441,11 @@ void BrayaSettings::onExportSettings(GtkButton* button, gpointer data) {
     if (settings->m_adBlocker->saveSettings(exportPath)) {
         std::cout << "✓ Settings exported to: " << exportPath << std::endl;
 
-        // Show success dialog
-        GtkWidget* dialog = gtk_message_dialog_new(
-            GTK_WINDOW(settings->dialog),
-            GTK_DIALOG_MODAL,
-            GTK_MESSAGE_INFO,
-            GTK_BUTTONS_OK,
-            "Settings Exported"
-        );
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-            "Settings exported to:\n%s", exportPath.c_str());
-        g_signal_connect(dialog, "response", G_CALLBACK(gtk_window_destroy), NULL);
-        gtk_window_present(GTK_WINDOW(dialog));
+        std::string detail = "Settings exported to:\n" + exportPath;
+        GtkAlertDialog* alert = gtk_alert_dialog_new("Settings Exported");
+        gtk_alert_dialog_set_detail(alert, detail.c_str());
+        gtk_alert_dialog_show(alert, GTK_WINDOW(settings->dialog));
+        g_object_unref(alert);
     } else {
         std::cerr << "✗ Failed to export settings" << std::endl;
     }
@@ -2563,18 +2491,12 @@ void BrayaSettings::onImportSettings(GtkButton* button, gpointer data) {
                     std::cout << "✓ Settings imported from: " << path << std::endl;
                     settings->updateAdBlockerUI();
 
-                    // Show success dialog
-                    GtkWidget* successDialog = gtk_message_dialog_new(
-                        GTK_WINDOW(settings->dialog),
-                        GTK_DIALOG_MODAL,
-                        GTK_MESSAGE_INFO,
-                        GTK_BUTTONS_OK,
-                        "Settings Imported"
-                    );
-                    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(successDialog),
-                        "Settings imported successfully from:\n%s", path);
-                    g_signal_connect(successDialog, "response", G_CALLBACK(gtk_window_destroy), NULL);
-                    gtk_window_present(GTK_WINDOW(successDialog));
+                    std::string detail = "Settings imported successfully from:\n";
+                    detail += path;
+                    GtkAlertDialog* alert = gtk_alert_dialog_new("Settings Imported");
+                    gtk_alert_dialog_set_detail(alert, detail.c_str());
+                    gtk_alert_dialog_show(alert, GTK_WINDOW(settings->dialog));
+                    g_object_unref(alert);
                 } else {
                     std::cerr << "✗ Failed to import settings from: " << path << std::endl;
                 }

@@ -2,6 +2,32 @@
 
 All notable changes to Braya Browser will be documented in this file.
 
+## [1.1.0] - 2026-04-18
+
+### Added
+- **Per-site settings** — right-click any tab for a site-specific panel: JS toggle, ad-blocker whitelist, clear cookies, zoom controls
+- **Command palette** foundation (`BrayaCommandPalette`) for future keyboard-driven navigation
+- **About panel** — runtime WebKit/GTK versions, profile folder path, "Copy Version Info" button, "Open Profile Folder" launcher
+- Filter list auto-update — ad-blocker filter lists refresh daily in the background
+- Tab groups: create, collapse, and color-code groups of tabs
+
+### Fixed
+- **Tab-close crash (SIGSEGV)** — removed re-entrant GTK main loop pump in `closeTab()`; was allowing recursive tab operations while `tabs[]` was mid-modification
+- **Google/CAPTCHA loop** — set Chrome-compatible User-Agent on all WebViews; WebKitGTK's default UA was being flagged as a bot
+- Web process crash signal handler now uses correct `WebKitWebProcessTerminationReason` parameter
+- Session restore now respects the "Restore session on startup" setting
+
+### Changed
+- **Full GTK 4.10+ deprecation audit** — zero deprecation warnings:
+  - `GtkComboBoxText` → `GtkDropDown` across all settings panels
+  - `GtkFileChooserNative` / `GtkFileChooserDialog` → `GtkFileDialog` (async)
+  - `GtkMessageDialog` / `gtk_dialog_new_with_buttons` → `GtkAlertDialog`
+  - `GtkColorButton` → `GtkColorDialogButton` + `GtkColorDialog`
+  - `gtk_style_context_add_provider` → `gtk_style_context_add_provider_for_display`
+  - `gtk_widget_show` on popovers → `gtk_popover_popup`
+  - `gdk_pixbuf_new_from_file_at_scale` → `gdk_texture_new_from_filename`
+- Version bumped to 1.1.0
+
 ## [1.0.8] - 2025-11-22
 
 ### Added

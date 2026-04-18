@@ -11,7 +11,7 @@ class BrayaExtensionManager;
 
 class BrayaTab {
 public:
-    BrayaTab(int id, const char* url = "about:braya", BrayaPasswordManager* passwordMgr = nullptr, BrayaExtensionManager* extMgr = nullptr);
+    BrayaTab(int id, const char* url = "about:braya", BrayaPasswordManager* passwordMgr = nullptr, BrayaExtensionManager* extMgr = nullptr, WebKitNetworkSession* networkSession = nullptr);
     ~BrayaTab();
     
     int getId() const { return id; }
@@ -86,12 +86,6 @@ private:
     std::string suspendedTitle;
     GdkTexture* cachedFavicon;
 
-    // 💤 Tab suspension state (Phase 2 memory optimization)
-    bool suspended;
-    std::string suspendedUrl;
-    std::string suspendedTitle;
-    GdkTexture* cachedFavicon;
-
     WebKitWebView* webView;
     GtkWidget* scrolledWindow;
     GtkWidget* tabButton;
@@ -119,7 +113,7 @@ private:
     static void onTitleChanged(WebKitWebView* webView, GParamSpec* pspec, gpointer userData);
     static void onUriChanged(WebKitWebView* webView, GParamSpec* pspec, gpointer userData);
     static void onFaviconChanged(WebKitWebView* webView, GParamSpec* pspec, gpointer userData);
-    static void onWebProcessCrashed(WebKitWebView* webView, gpointer userData);
+    static void onWebProcessCrashed(WebKitWebView* webView, WebKitWebProcessTerminationReason reason, gpointer userData);
     static void onPasswordCaptured(WebKitUserContentManager* manager, JSCValue* value, gpointer userData);
     static void onAutofillRequest(WebKitUserContentManager* manager, JSCValue* value, gpointer userData);
     static void onCheckPasswords(WebKitUserContentManager* manager, JSCValue* value, gpointer userData);

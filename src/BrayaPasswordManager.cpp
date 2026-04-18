@@ -1871,6 +1871,9 @@ bool BrayaPasswordManager::isVaultLocked() const {
     return masterPasswordConfigured && (vaultLocked || isUnlockExpired());
 }
 
+struct PwImportCtx { BrayaPasswordManager* mgr; GtkWidget* parent; };
+struct PwExportCtx { BrayaPasswordManager* mgr; GtkWidget* parent; };
+
 void BrayaPasswordManager::showPasswordManager(GtkWindow* parent) {
     if (!requestUnlock(parent)) {
         return;
@@ -2411,41 +2414,42 @@ void BrayaPasswordManager::showPasswordManager(GtkWindow* parent) {
         auto* manager = static_cast<BrayaPasswordManager*>(g_object_get_data(G_OBJECT(btn), "manager"));
         GtkWidget* parent = GTK_WIDGET(g_object_get_data(G_OBJECT(btn), "parent"));
 
-        GtkFileChooserNative* chooser = gtk_file_chooser_native_new(
-            "Import Passwords",
-            GTK_WINDOW(parent),
-            GTK_FILE_CHOOSER_ACTION_OPEN,
-            "Import",
-            "Cancel"
-        );
+        auto* ctx = new PwImportCtx();
+        ctx->mgr = manager; ctx->parent = parent;
 
+        GtkFileDialog* fd = gtk_file_dialog_new();
+        gtk_file_dialog_set_title(fd, "Import Passwords");
         GtkFileFilter* filter = gtk_file_filter_new();
         gtk_file_filter_set_name(filter, "CSV Files");
         gtk_file_filter_add_pattern(filter, "*.csv");
-        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(chooser), filter);
-
-        g_object_set_data(G_OBJECT(chooser), "parent", parent);
-        g_signal_connect(chooser, "response", G_CALLBACK(+[](GtkFileChooserNative* chooser, int response, gpointer data) {
-            if (response == GTK_RESPONSE_ACCEPT) {
-                auto* manager = static_cast<BrayaPasswordManager*>(data);
-                GtkWidget* parent = GTK_WIDGET(g_object_get_data(G_OBJECT(chooser), "parent"));
-                GFile* file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(chooser));
-                char* path = g_file_get_path(file);
-                if (path) {
-                    if (manager->importFromCSV(path)) {
-                        manager->showSuccessDialog(GTK_WINDOW(parent), "Import Successful",
-                            "Successfully imported passwords from CSV file!");
-                    } else {
-                        manager->showErrorDialog(GTK_WINDOW(parent), "Import Failed",
-                            "Could not import passwords. Check the CSV file format.");
+        GListStore* filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+        g_list_store_append(filters, filter);
+        g_object_unref(filter);
+        gtk_file_dialog_set_filters(fd, G_LIST_MODEL(filters));
+        g_object_unref(filters);
+        gtk_file_dialog_open(fd, GTK_WINDOW(parent), nullptr,
+            [](GObject* src, GAsyncResult* res, gpointer data) {
+                auto* ctx = static_cast<PwImportCtx*>(data);
+                GError* err = nullptr;
+                GFile* file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(src), res, &err);
+                if (file) {
+                    char* path = g_file_get_path(file);
+                    if (path) {
+                        if (ctx->mgr->importFromCSV(path)) {
+                            ctx->mgr->showSuccessDialog(GTK_WINDOW(ctx->parent),
+                                "Import Successful", "Successfully imported passwords from CSV file!");
+                        } else {
+                            ctx->mgr->showErrorDialog(GTK_WINDOW(ctx->parent),
+                                "Import Failed", "Could not import passwords. Check the CSV file format.");
+                        }
+                        g_free(path);
                     }
-                    g_free(path);
+                    g_object_unref(file);
                 }
-                g_object_unref(file);
-            }
-        }), manager);
-
-        gtk_native_dialog_show(GTK_NATIVE_DIALOG(chooser));
+                if (err) g_error_free(err);
+                g_object_unref(src);
+                delete ctx;
+            }, ctx);
     }), nullptr);
     gtk_box_append(GTK_BOX(leftBtnBox), importBtn);
 
@@ -2460,38 +2464,35 @@ void BrayaPasswordManager::showPasswordManager(GtkWindow* parent) {
             return;
         }
 
-        GtkFileChooserNative* chooser = gtk_file_chooser_native_new(
-            "Export Passwords",
-            GTK_WINDOW(parent),
-            GTK_FILE_CHOOSER_ACTION_SAVE,
-            "Export",
-            "Cancel"
-        );
+        auto* ctx = new PwExportCtx();
+        ctx->mgr = manager; ctx->parent = parent;
 
-        gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(chooser), "braya-passwords.csv");
-
-        g_object_set_data(G_OBJECT(chooser), "parent", parent);
-        g_signal_connect(chooser, "response", G_CALLBACK(+[](GtkFileChooserNative* chooser, int response, gpointer data) {
-            if (response == GTK_RESPONSE_ACCEPT) {
-                auto* manager = static_cast<BrayaPasswordManager*>(data);
-                GtkWidget* parent = GTK_WIDGET(g_object_get_data(G_OBJECT(chooser), "parent"));
-                GFile* file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(chooser));
-                char* path = g_file_get_path(file);
-                if (path) {
-                    if (manager->exportToCSV(path)) {
-                        std::string msg = "Successfully exported passwords to:\n" + std::string(path);
-                        manager->showSuccessDialog(GTK_WINDOW(parent), "Export Successful", msg);
-                    } else {
-                        manager->showErrorDialog(GTK_WINDOW(parent), "Export Failed",
-                            "Could not export passwords to the selected file.");
+        GtkFileDialog* fd = gtk_file_dialog_new();
+        gtk_file_dialog_set_title(fd, "Export Passwords");
+        gtk_file_dialog_set_initial_name(fd, "braya-passwords.csv");
+        gtk_file_dialog_save(fd, GTK_WINDOW(parent), nullptr,
+            [](GObject* src, GAsyncResult* res, gpointer data) {
+                auto* ctx = static_cast<PwExportCtx*>(data);
+                GError* err = nullptr;
+                GFile* file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(src), res, &err);
+                if (file) {
+                    char* path = g_file_get_path(file);
+                    if (path) {
+                        if (ctx->mgr->exportToCSV(path)) {
+                            std::string msg = "Successfully exported passwords to:\n" + std::string(path);
+                            ctx->mgr->showSuccessDialog(GTK_WINDOW(ctx->parent), "Export Successful", msg);
+                        } else {
+                            ctx->mgr->showErrorDialog(GTK_WINDOW(ctx->parent), "Export Failed",
+                                "Could not export passwords to the selected file.");
+                        }
+                        g_free(path);
                     }
-                    g_free(path);
+                    g_object_unref(file);
                 }
-                g_object_unref(file);
-            }
-        }), manager);
-
-        gtk_native_dialog_show(GTK_NATIVE_DIALOG(chooser));
+                if (err) g_error_free(err);
+                g_object_unref(src);
+                delete ctx;
+            }, ctx);
     }), nullptr);
     gtk_box_append(GTK_BOX(leftBtnBox), exportBtn);
 

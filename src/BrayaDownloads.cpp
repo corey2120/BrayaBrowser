@@ -64,37 +64,34 @@ void BrayaDownloads::handleDownload(WebKitDownload* download) {
     }
 }
 
-void BrayaDownloads::onDownloadDecideDestination(WebKitDownload* download, const gchar* suggested_filename, gpointer data) {
+gboolean BrayaDownloads::onDownloadDecideDestination(WebKitDownload* download, const gchar* suggested_filename, gpointer data) {
     BrayaDownloads* downloads = static_cast<BrayaDownloads*>(data);
 
     if (!suggested_filename || strlen(suggested_filename) == 0) {
         std::cerr << "✗ No filename suggested for download" << std::endl;
-        return;
+        return FALSE;
     }
 
     std::string downloadsPath = downloads->getDownloadsPath();
 
-    // Ensure we have a valid downloads path
     if (downloadsPath.empty()) {
         downloadsPath = std::string(g_get_home_dir()) + "/Downloads";
-        std::cout << "⚠️  Downloads directory not found, using: " << downloadsPath << std::endl;
     }
 
-    // Build absolute file path
     std::string filePath = downloadsPath + "/" + std::string(suggested_filename);
 
     std::cout << "📥 Download destination: " << filePath << std::endl;
 
-    // WebKit expects an absolute file path, not a file:// URI
     webkit_download_set_destination(download, filePath.c_str());
 
-    // Update our list
     for (auto& item : downloads->downloads) {
         if (item.download == download) {
             item.filename = suggested_filename;
             break;
         }
     }
+
+    return TRUE;
 }
 
 void BrayaDownloads::onDownloadReceived(WebKitDownload* download, guint64 data_length, gpointer user_data) {

@@ -48,7 +48,7 @@ private:
     void addDownloadToUI(const DownloadItem& item);
     void updateDownloadProgress(WebKitDownload* download);
     
-    static void onDownloadDecideDestination(WebKitDownload* download, const gchar* suggested_filename, gpointer data);
+    static gboolean onDownloadDecideDestination(WebKitDownload* download, const gchar* suggested_filename, gpointer data);
     static void onDownloadReceived(WebKitDownload* download, guint64 data_length, gpointer user_data);
     static void onDownloadFinished(WebKitDownload* download, gpointer user_data);
     static void onDownloadFailed(WebKitDownload* download, GError* error, gpointer user_data);

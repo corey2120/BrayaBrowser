@@ -66,7 +66,9 @@ static bool shouldBlockUrl(const char* url) {
 
 // Inject JavaScript into page
 static void injectJavaScript(WebKitWebPage* page, const char* script) {
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
     WebKitFrame* frame = webkit_web_page_get_main_frame(page);
+G_GNUC_END_IGNORE_DEPRECATIONS
     if (!frame) return;
 
     WebKitScriptWorld* world = webkit_script_world_get_default();
@@ -155,23 +157,17 @@ static void onDocumentLoaded(WebKitWebPage* page,
     guint64 page_id = webkit_web_page_get_id(page);
     std::cout << "📄 Document loaded: " << page_id << std::endl;
 
-    // Get the page URI
-    WebKitFrame* frame = webkit_web_page_get_main_frame(page);
-    if (frame) {
-        const char* uri = webkit_web_page_get_uri(page);
-        std::cout << "  URI: " << (uri ? uri : "unknown") << std::endl;
+    const char* uri = webkit_web_page_get_uri(page);
+    std::cout << "  URI: " << (uri ? uri : "unknown") << std::endl;
 
-        // Inject test JavaScript
-        const char* testScript = R"(
-            console.log('🔌 Braya Extension loaded on:', window.location.href);
-            window.brayaExtension = {
-                version: '1.0.0',
-                name: 'Braya Web Extension'
-            };
-        )";
-
-        injectJavaScript(page, testScript);
-    }
+    const char* testScript = R"(
+        console.log('Braya Extension loaded on:', window.location.href);
+        window.brayaExtension = {
+            version: '1.0.0',
+            name: 'Braya Web Extension'
+        };
+    )";
+    injectJavaScript(page, testScript);
 }
 
 // Called before a request is sent - can modify or block
